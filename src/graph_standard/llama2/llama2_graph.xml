@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graph>
+    <metadata>
+        <model_name>{model_name}</model_name>
+        <max_nodes>{max_nodes}</max_nodes>
+        <n_tokens>{n_tokens}</n_tokens>
+        <n_embd_head>{n_embd_head}</n_embd_head>
+        <n_layer>{n_layer}</n_layer>
+    </metadata>
+    <layers>
+        <!-- Cada capa del modelo -->
+        <layer id="{layer_id}">
+            <inputs>
+                <!-- Tensores de entrada -->
+                <tensor name="{tensor_name}" type="{tensor_type}"/>
+                
+            </inputs>
+            <operations>
+                <!-- Operaciones en la capa -->
+                <operation type="{operation_type}">
+                    <inputs>
+                        <input ref="{input_tensor_name}"/>
+                        
+                    </inputs>
+                    <outputs>
+                        <output name="{output_tensor_name}"/>
+                        
+                    </outputs>
+                    <parameters>
+                        <!-- Parámetros específicos de la operación -->
+                        <parameter name="{parameter_name}" value="{parameter_value}"/>
+                       
+                    </parameters>
+                </operation>
+                <!-- Más operaciones -->
+            </operations>
+            <outputs>
+                <!-- Tensores de salida de la capa -->
+                <tensor name="{output_tensor_name}" type="{tensor_type}"/>
+               
+            </outputs>
+        </layer>
+        <!-- Repetir para cada capa -->
+
+    </layers>
+    <output>
+        <!-- Tensor final del modelo -->
+        <tensor name="{final_output_name}" type="model_output"/>
+        
+    </output>
+</graph>

@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graph>
+    <metadata>
+        <model_name>{model_name}</model_name>
+        <n_audio_ctx>{n_audio_ctx}</n_audio_ctx>
+        <n_text_state>{n_text_state}</n_text_state>
+        <n_text_head>{n_text_head}</n_text_head>
+        <n_text_layer>{n_text_layer}</n_text_layer>
+        <n_tokens>{n_tokens}</n_tokens>
+    </metadata>
+    <inputs>
+        <!-- Tensores de entrada -->
+        <tensor name="embd" type="input" shape="{n_tokens}"/>
+        <tensor name="position" type="input" shape="{n_tokens}"/>
+        <tensor name="KQ_mask" type="input" shape="{n_kv}x{n_tokens}x1"/>
+    </inputs>
+    <operations>
+        <!-- Token Encoding + Position Encoding -->
+        <operation type="add">
+            <inputs>
+                <input ref="embd"/>
+                <input ref="position"/>
+            </inputs>
+            <outputs>
+                <output name="inpL"/>
+            </outputs>
+        </operation>
+
+        <!-- Capas de Decodificador -->
+        <layer id="{layer_id}">
+            <inputs>
+                <tensor name="inpL" type="embedding"/>
+            </inputs>
+            <operations>
+                <!-- Normalización -->
+                <operation type="norm">
+                    <inputs>
+                        <input ref="inpL"/>
+                    </inputs>
+                    <outputs>
+                        <output name="norm_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="weights" ref="{attn_ln_0_w}"/>
+                        <parameter name="bias" ref="{attn_ln_0_b}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Self-Attention -->
+                <operation type="self_attention">
+                    <inputs>
+                        <input ref="norm_output"/>
+                    </inputs>
+                    <outputs>
+                        <output name="attention_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="q_weights" ref="{attn_q_w}"/>
+                        <parameter name="q_bias" ref="{attn_q_b}"/>
+                        <parameter name="k_weights" ref="{attn_k_w}"/>
+                        <parameter name="v_weights" ref="{attn_v_w}"/>
+                        <parameter name="v_bias" ref="{attn_v_b}"/>
+                        <parameter name="scale" value="{KQscale}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Proyección -->
+                <operation type="linear">
+                    <inputs>
+                        <input ref="attention_output"/>
+                    </inputs>
+                    <outputs>
+                        <output name="proj_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="weights" ref="{attn_ln_1_w}"/>
+                        <parameter name="bias" ref="{attn_ln_1_b}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Skip Connection -->
+                <operation type="add">
+                    <inputs>
+                        <input ref="proj_output"/>
+                        <input ref="inpL"/>
+                    </inputs>
+                    <outputs>
+                        <output name="skip_output"/>
+                    </outputs>
+                </operation>
+
+                <!-- Cross-Attention -->
+                <operation type="cross_attention">
+                    <inputs>
+                        <input ref="skip_output"/>
+                    </inputs>
+                    <outputs>
+                        <output name="cross_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="q_weights" ref="{cross_attn_q_w}"/>
+                        <parameter name="q_bias" ref="{cross_attn_q_b}"/>
+                        <parameter name="k_weights" ref="{cross_attn_k_w}"/>
+                        <parameter name="v_weights" ref="{cross_attn_v_w}"/>
+                        <parameter name="v_bias" ref="{cross_attn_v_b}"/>
+                        <parameter name="scale" value="{KQscale}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Feed-Forward Network -->
+                <operation type="feed_forward">
+                    <inputs>
+                        <input ref="cross_output"/>
+                    </inputs>
+                    <outputs>
+                        <output name="ffn_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="lin1_weights" ref="{mlp_0_w}"/>
+                        <parameter name="lin1_bias" ref="{mlp_0_b}"/>
+                        <parameter name="lin2_weights" ref="{mlp_1_w}"/>
+                        <parameter name="lin2_bias" ref="{mlp_1_b}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Skip Connection Final -->
+                <operation type="add">
+                    <inputs>
+                        <input ref="ffn_output"/>
+                        <input ref="skip_output"/>
+                    </inputs>
+                    <outputs>
+                        <output name="layer_output"/>
+                    </outputs>
+                </operation>
+            </operations>
+            <outputs>
+                <tensor name="layer_output" type="embedding"/>
+            </outputs>
+        </layer>
+        <!-- Repetir para cada capa -->
+    </operations>
+    <outputs>
+        <!-- Normalización Final -->
+        <operation type="norm">
+            <inputs>
+                <input ref="final_layer_output"/>
+            </inputs>
+            <outputs>
+                <output name="final_norm_output"/>
+            </outputs>
+            <parameters>
+                <parameter name="weights" ref="{d_ln_w}"/>
+                <parameter name="bias" ref="{d_ln_b}"/>
+            </parameters>
+        </operation>
+        <outputs>
+            <tensor name="logits" type="output"/>
+        </outputs>
+    </outputs>
+</graph>

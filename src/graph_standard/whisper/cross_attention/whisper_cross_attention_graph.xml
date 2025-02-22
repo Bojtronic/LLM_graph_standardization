@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graph>
+    <metadata>
+        <model_name>{model_name}</model_name>
+        <n_audio_ctx>{n_audio_ctx}</n_audio_ctx>
+        <n_audio_state>{n_audio_state}</n_audio_state>
+        <n_audio_head>{n_audio_head}</n_audio_head>
+        <n_text_layer>{n_text_layer}</n_text_layer>
+    </metadata>
+    <inputs>
+        <!-- Tensores de entrada -->
+        <tensor name="embd_enc" type="input" shape="{n_state}x{n_audio_ctx}"/>
+    </inputs>
+    <operations>
+        <!-- Capas de Cross-Attention -->
+        <layer id="{layer_id}">
+            <inputs>
+                <tensor name="embd_enc" type="embedding"/>
+            </inputs>
+            <operations>
+                <!-- Cross-Attention Key -->
+                <operation type="mul_mat">
+                    <inputs>
+                        <input ref="embd_enc"/>
+                    </inputs>
+                    <outputs>
+                        <output name="Kcross"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="weights" ref="{cross_attn_k_w}"/>
+                    </parameters>
+                </operation>
+                <operation type="scale">
+                    <inputs>
+                        <input ref="Kcross"/>
+                    </inputs>
+                    <outputs>
+                        <output name="Kcross_scaled"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="scale" value="{Kscale}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Cross-Attention Value -->
+                <operation type="mul_mat">
+                    <inputs>
+                        <input ref="embd_enc"/>
+                    </inputs>
+                    <outputs>
+                        <output name="Vcross"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="weights" ref="{cross_attn_v_w}"/>
+                    </parameters>
+                </operation>
+                <operation type="add">
+                    <inputs>
+                        <input ref="Vcross"/>
+                        <input ref="{cross_attn_v_b}"/>
+                    </inputs>
+                    <outputs>
+                        <output name="Vcross_bias"/>
+                    </outputs>
+                </operation>
+
+                <!-- Copia a memoria KV -->
+                <operation type="copy">
+                    <inputs>
+                        <input ref="Kcross_scaled"/>
+                    </inputs>
+                    <outputs>
+                        <output name="k"/>
+                    </outputs>
+                </operation>
+                <operation type="copy">
+                    <inputs>
+                        <input ref="Vcross_bias"/>
+                    </inputs>
+                    <outputs>
+                        <output name="v"/>
+                    </outputs>
+                </operation>
+            </operations>
+            <outputs>
+                <tensor name="k" type="key"/>
+                <tensor name="v" type="value"/>
+            </outputs>
+        </layer>
+        <!-- Repetir para cada capa -->
+    </operations>
+    <outputs>
+        <!-- Tensores de salida -->
+        <tensor name="k" type="output"/>
+        <tensor name="v" type="output"/>
+    </outputs>
+</graph>

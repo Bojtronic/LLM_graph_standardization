@@ -1,0 +1,166 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graph>
+    <metadata>
+        <model_name>{model_name}</model_name>
+        <hidden_size>{hidden_size}</hidden_size>
+        <num_hidden_layers>{num_hidden_layers}</num_hidden_layers>
+        <num_attention_heads>{num_attention_heads}</num_attention_heads>
+        <num_classes>{num_classes}</num_classes>
+        <input_shape>{input_shape}</input_shape>
+    </metadata>
+    <inputs>
+        <!-- Tensores de entrada -->
+        <tensor name="input" type="input" shape="{input_shape}"/>
+    </inputs>
+    <layers>
+        <!-- Capa de Preprocesamiento -->
+        <layer id="preprocessing">
+            <operations>
+                <operation type="{operation_type}">
+                    <inputs>
+                        <input ref="input"/>
+                    </inputs>
+                    <outputs>
+                        <output name="preprocessed_output"/>
+                    </outputs>
+                    <parameters>
+                        <!-- Parámetros específicos de la operación -->
+                        <parameter name="{parameter_name}" ref="{parameter_ref}"/>
+                    </parameters>
+                </operation>
+                <!-- Más operaciones de preprocesamiento -->
+            </operations>
+            <outputs>
+                <tensor name="preprocessed_output" type="embedding"/>
+            </outputs>
+        </layer>
+
+        <!-- Capas de Transformer -->
+        <layer id="{layer_id}">
+            <inputs>
+                <tensor name="input" type="embedding"/>
+            </inputs>
+            <operations>
+                <!-- Normalización -->
+                <operation type="norm">
+                    <inputs>
+                        <input ref="input"/>
+                    </inputs>
+                    <outputs>
+                        <output name="norm_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="weights" ref="{norm_weights_ref}"/>
+                        <parameter name="bias" ref="{norm_bias_ref}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Self-Attention -->
+                <operation type="self_attention">
+                    <inputs>
+                        <input ref="norm_output"/>
+                    </inputs>
+                    <outputs>
+                        <output name="attention_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="qkv_weights" ref="{qkv_weights_ref}"/>
+                        <parameter name="qkv_bias" ref="{qkv_bias_ref}"/>
+                        <parameter name="proj_weights" ref="{proj_weights_ref}"/>
+                        <parameter name="proj_bias" ref="{proj_bias_ref}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Skip Connection -->
+                <operation type="add">
+                    <inputs>
+                        <input ref="attention_output"/>
+                        <input ref="input"/>
+                    </inputs>
+                    <outputs>
+                        <output name="skip_output"/>
+                    </outputs>
+                </operation>
+
+                <!-- Feed-Forward Network -->
+                <operation type="feed_forward">
+                    <inputs>
+                        <input ref="skip_output"/>
+                    </inputs>
+                    <outputs>
+                        <output name="ffn_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="lin1_weights" ref="{lin1_weights_ref}"/>
+                        <parameter name="lin1_bias" ref="{lin1_bias_ref}"/>
+                        <parameter name="lin2_weights" ref="{lin2_weights_ref}"/>
+                        <parameter name="lin2_bias" ref="{lin2_bias_ref}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Skip Connection Final -->
+                <operation type="add">
+                    <inputs>
+                        <input ref="ffn_output"/>
+                        <input ref="skip_output"/>
+                    </inputs>
+                    <outputs>
+                        <output name="layer_output"/>
+                    </outputs>
+                </operation>
+            </operations>
+            <outputs>
+                <tensor name="layer_output" type="embedding"/>
+            </outputs>
+        </layer>
+        <!-- Repetir para cada capa -->
+    </layers>
+    <output>
+        <!-- Postprocesamiento y Clasificación -->
+        <operations>
+            <operation type="pooling">
+                <inputs>
+                    <input ref="final_layer_output"/>
+                </inputs>
+                <outputs>
+                    <output name="pooled_output"/>
+                </outputs>
+            </operation>
+            <operation type="norm">
+                <inputs>
+                    <input ref="pooled_output"/>
+                </inputs>
+                <outputs>
+                    <output name="norm_output"/>
+                </outputs>
+                <parameters>
+                    <parameter name="weights" ref="{norm_weights_ref}"/>
+                    <parameter name="bias" ref="{norm_bias_ref}"/>
+                </parameters>
+            </operation>
+            <operation type="linear">
+                <inputs>
+                    <input ref="norm_output"/>
+                </inputs>
+                <outputs>
+                    <output name="logits"/>
+                </outputs>
+                <parameters>
+                    <parameter name="weights" ref="{head_weights_ref}"/>
+                    <parameter name="bias" ref="{head_bias_ref}"/>
+                </parameters>
+            </operation>
+            <operation type="softmax">
+                <inputs>
+                    <input ref="logits"/>
+                </inputs>
+                <outputs>
+                    <output name="probs"/>
+                </outputs>
+            </operation>
+        </operations>
+        <outputs>
+            <tensor name="probs" type="output"/>
+        </outputs>
+    </output>
+</graph>
