@@ -1,0 +1,406 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graph>
+    <metadata>
+        <model_name>Whisper</model_name>
+        <input_shape>{input_shape}</input_shape>
+        <output_shape>{output_shape}</output_shape>
+        <n_audio_ctx>{n_audio_ctx}</n_audio_ctx>
+        <n_audio_state>{n_audio_state}</n_audio_state>
+        <n_audio_head>{n_audio_head}</n_audio_head>
+        <n_audio_layer>{n_audio_layer}</n_audio_layer>
+        <n_text_state>{n_text_state}</n_text_state>
+        <n_text_head>{n_text_head}</n_text_head>
+        <n_text_layer>{n_text_layer}</n_text_layer>
+        <n_tokens>{n_tokens}</n_tokens>
+    </metadata>
+    <inputs>
+        <!-- Tensores de entrada -->
+        <tensor name="input" type="input" shape="{input_shape}"/>
+    </inputs>
+    <operations>
+        <!-- Etapa de Convolución -->
+        <operation type="conv1d">
+            <inputs>
+                <input ref="input"/>
+            </inputs>
+            <outputs>
+                <output name="conv_output"/>
+            </outputs>
+            <parameters>
+                <parameter name="weights" ref="{conv_weights_ref}"/>
+                <parameter name="bias" ref="{conv_bias_ref}"/>
+            </parameters>
+        </operation>
+        <operation type="activation">
+            <inputs>
+                <input ref="conv_output"/>
+            </inputs>
+            <outputs>
+                <output name="activation_output"/>
+            </outputs>
+            <parameters>
+                <parameter name="type" value="GELU"/>
+            </parameters>
+        </operation>
+        <operation type="conv1d">
+            <inputs>
+                <input ref="activation_output"/>
+            </inputs>
+            <outputs>
+                <output name="embd_conv"/>
+            </outputs>
+            <parameters>
+                <parameter name="weights" ref="{final_conv_weights_ref}"/>
+                <parameter name="bias" ref="{final_conv_bias_ref}"/>
+            </parameters>
+        </operation>
+        <operation type="activation">
+            <inputs>
+                <input ref="embd_conv"/>
+            </inputs>
+            <outputs>
+                <output name="final_conv_output"/>
+            </outputs>
+            <parameters>
+                <parameter name="type" value="GELU"/>
+            </parameters>
+        </operation>
+
+        <!-- Etapa de Encoder -->
+        <operation type="add">
+            <inputs>
+                <input ref="final_conv_output"/>
+                <input ref="e_pe"/>
+            </inputs>
+            <outputs>
+                <output name="inpL_encoder"/>
+            </outputs>
+        </operation>
+        <!-- Capas del Encoder -->
+        <layer id="encoder_layer">
+            <inputs>
+                <tensor name="inpL_encoder" type="embedding"/>
+            </inputs>
+            <operations>
+                <!-- Normalización -->
+                <operation type="norm">
+                    <inputs>
+                        <input ref="inpL_encoder"/>
+                    </inputs>
+                    <outputs>
+                        <output name="norm_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="weights" ref="{attn_ln_0_w}"/>
+                        <parameter name="bias" ref="{attn_ln_0_b}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Self-Attention -->
+                <operation type="self_attention">
+                    <inputs>
+                        <input ref="norm_output"/>
+                    </inputs>
+                    <outputs>
+                        <output name="attention_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="q_weights" ref="{attn_q_w}"/>
+                        <parameter name="q_bias" ref="{attn_q_b}"/>
+                        <parameter name="k_weights" ref="{attn_k_w}"/>
+                        <parameter name="v_weights" ref="{attn_v_w}"/>
+                        <parameter name="v_bias" ref="{attn_v_b}"/>
+                        <parameter name="scale" value="{KQscale}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Proyección -->
+                <operation type="linear">
+                    <inputs>
+                        <input ref="attention_output"/>
+                    </inputs>
+                    <outputs>
+                        <output name="proj_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="weights" ref="{attn_ln_1_w}"/>
+                        <parameter name="bias" ref="{attn_ln_1_b}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Skip Connection -->
+                <operation type="add">
+                    <inputs>
+                        <input ref="proj_output"/>
+                        <input ref="inpL_encoder"/>
+                    </inputs>
+                    <outputs>
+                        <output name="skip_output"/>
+                    </outputs>
+                </operation>
+
+                <!-- Feed-Forward Network -->
+                <operation type="feed_forward">
+                    <inputs>
+                        <input ref="skip_output"/>
+                    </inputs>
+                    <outputs>
+                        <output name="ffn_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="lin1_weights" ref="{mlp_0_w}"/>
+                        <parameter name="lin1_bias" ref="{mlp_0_b}"/>
+                        <parameter name="lin2_weights" ref="{mlp_1_w}"/>
+                        <parameter name="lin2_bias" ref="{mlp_1_b}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Skip Connection Final -->
+                <operation type="add">
+                    <inputs>
+                        <input ref="ffn_output"/>
+                        <input ref="skip_output"/>
+                    </inputs>
+                    <outputs>
+                        <output name="encoder_layer_output"/>
+                    </outputs>
+                </operation>
+            </operations>
+            <outputs>
+                <tensor name="encoder_layer_output" type="embedding"/>
+            </outputs>
+        </layer>
+        <!-- Normalización Final del Encoder -->
+        <operation type="norm">
+            <inputs>
+                <input ref="encoder_layer_output"/>
+            </inputs>
+            <outputs>
+                <output name="embd_enc"/>
+            </outputs>
+            <parameters>
+                <parameter name="weights" ref="{e_ln_w}"/>
+                <parameter name="bias" ref="{e_ln_b}"/>
+            </parameters>
+        </operation>
+
+        <!-- Etapa de Cross-Attention -->
+        <layer id="cross_attention_layer">
+            <inputs>
+                <tensor name="embd_enc" type="embedding"/>
+            </inputs>
+            <operations>
+                <!-- Cross-Attention Key -->
+                <operation type="mul_mat">
+                    <inputs>
+                        <input ref="embd_enc"/>
+                    </inputs>
+                    <outputs>
+                        <output name="Kcross"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="weights" ref="{cross_attn_k_w}"/>
+                    </parameters>
+                </operation>
+                <operation type="scale">
+                    <inputs>
+                        <input ref="Kcross"/>
+                    </inputs>
+                    <outputs>
+                        <output name="Kcross_scaled"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="scale" value="{Kscale}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Cross-Attention Value -->
+                <operation type="mul_mat">
+                    <inputs>
+                        <input ref="embd_enc"/>
+                    </inputs>
+                    <outputs>
+                        <output name="Vcross"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="weights" ref="{cross_attn_v_w}"/>
+                    </parameters>
+                </operation>
+                <operation type="add">
+                    <inputs>
+                        <input ref="Vcross"/>
+                        <input ref="{cross_attn_v_b}"/>
+                    </inputs>
+                    <outputs>
+                        <output name="Vcross_bias"/>
+                    </outputs>
+                </operation>
+
+                <!-- Copia a memoria KV -->
+                <operation type="copy">
+                    <inputs>
+                        <input ref="Kcross_scaled"/>
+                    </inputs>
+                    <outputs>
+                        <output name="k"/>
+                    </outputs>
+                </operation>
+                <operation type="copy">
+                    <inputs>
+                        <input ref="Vcross_bias"/>
+                    </inputs>
+                    <outputs>
+                        <output name="v"/>
+                    </outputs>
+                </operation>
+            </operations>
+            <outputs>
+                <tensor name="k" type="key"/>
+                <tensor name="v" type="value"/>
+            </outputs>
+        </layer>
+
+        <!-- Etapa de Decoder -->
+        <operation type="add">
+            <inputs>
+                <input ref="embd"/>
+                <input ref="position"/>
+            </inputs>
+            <outputs>
+                <output name="inpL_decoder"/>
+            </outputs>
+        </operation>
+        <!-- Capas del Decoder -->
+        <layer id="decoder_layer">
+            <inputs>
+                <tensor name="inpL_decoder" type="embedding"/>
+            </inputs>
+            <operations>
+                <!-- Normalización -->
+                <operation type="norm">
+                    <inputs>
+                        <input ref="inpL_decoder"/>
+                    </inputs>
+                    <outputs>
+                        <output name="norm_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="weights" ref="{attn_ln_0_w}"/>
+                        <parameter name="bias" ref="{attn_ln_0_b}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Self-Attention -->
+                <operation type="self_attention">
+                    <inputs>
+                        <input ref="norm_output"/>
+                    </inputs>
+                    <outputs>
+                        <output name="attention_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="q_weights" ref="{attn_q_w}"/>
+                        <parameter name="q_bias" ref="{attn_q_b}"/>
+                        <parameter name="k_weights" ref="{attn_k_w}"/>
+                        <parameter name="v_weights" ref="{attn_v_w}"/>
+                        <parameter name="v_bias" ref="{attn_v_b}"/>
+                        <parameter name="scale" value="{KQscale}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Proyección -->
+                <operation type="linear">
+                    <inputs>
+                        <input ref="attention_output"/>
+                    </inputs>
+                    <outputs>
+                        <output name="proj_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="weights" ref="{attn_ln_1_w}"/>
+                        <parameter name="bias" ref="{attn_ln_1_b}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Skip Connection -->
+                <operation type="add">
+                    <inputs>
+                        <input ref="proj_output"/>
+                        <input ref="inpL_decoder"/>
+                    </inputs>
+                    <outputs>
+                        <output name="skip_output"/>
+                    </outputs>
+                </operation>
+
+                <!-- Cross-Attention -->
+                <operation type="cross_attention">
+                    <inputs>
+                        <input ref="skip_output"/>
+                    <input ref="k"/>
+                        <input ref="v"/>
+                    </inputs>
+                    <outputs>
+                        <output name="cross_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="q_weights" ref="{cross_attn_q_w}"/>
+                        <parameter name="q_bias" ref="{cross_attn_q_b}"/>
+                        <parameter name="k_weights" ref="{cross_attn_k_w}"/>
+                        <parameter name="v_weights" ref="{cross_attn_v_w}"/>
+                        <parameter name="v_bias" ref="{cross_attn_v_b}"/>
+                        <parameter name="scale" value="{KQscale}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Feed-Forward Network -->
+                <operation type="feed_forward">
+                    <inputs>
+                        <input ref="cross_output"/>
+                    </inputs>
+                    <outputs>
+                        <output name="ffn_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="lin1_weights" ref="{mlp_0_w}"/>
+                        <parameter name="lin1_bias" ref="{mlp_0_b}"/>
+                        <parameter name="lin2_weights" ref="{mlp_1_w}"/>
+                        <parameter name="lin2_bias" ref="{mlp_1_b}"/>
+                    </parameters>
+                </operation>
+
+                <!-- Skip Connection Final -->
+                <operation type="add">
+                    <inputs>
+                        <input ref="ffn_output"/>
+                        <input ref="skip_output"/>
+                    </inputs>
+                    <outputs>
+                        <output name="decoder_layer_output"/>
+                    </outputs>
+                </operation>
+            </operations>
+            <outputs>
+                <tensor name="decoder_layer_output" type="embedding"/>
+            </outputs>
+        </layer>
+        <!-- Normalización Final del Decoder -->
+        <operation type="norm">
+            <inputs>
+                <input ref="decoder_layer_output"/>
+            </inputs>
+            <outputs>
+                <output name="final_norm_output"/>
+            </outputs>
+            <parameters>
+                <parameter name="weights" ref="{d_ln_w}"/>
+                <parameter name="bias" ref="{d_ln_b}"/>
+            </parameters>
+        </operation>
+    </operations>
+    <outputs>
+        <!-- Tensor de salida -->
+        <tensor name="logits" type="output" shape="{output_shape}"/>
+    </outputs>
+</graph>
+
