@@ -1,1 +1,137 @@
-.
+<?xml version="1.0" encoding="UTF-8"?>
+<graph>
+    <!-- Metadatos del modelo -->
+    <metadata>
+        <model_name>{model_name}</model_name>
+        <max_nodes>{max_nodes}</max_nodes>
+        <n_tokens>{n_tokens}</n_tokens>
+        <n_embd_head>{n_embd_head}</n_embd_head>
+        <n_layer>{n_layer}</n_layer>
+        <model_type>{model_type}</model_type> 
+    </metadata>
+
+    <!-- Capas del modelo -->
+    <layers>
+        <!-- Capa genérica -->
+        <layer id="layer_1">
+            <inputs>
+                <tensor id="input_1" name="input_tensor" type="float32"/>
+            </inputs>
+
+            <operations>
+                <!-- Atención multi-cabezal -->
+                <operation id="op_1" type="multi_head_attention">
+                    <inputs>
+                        <input ref="input_1"/>
+                    </inputs>
+                    <outputs>
+                        <output id="output_1" name="attention_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="n_heads" value="8"/>
+                        <parameter name="use_causal_mask" value="true"/>
+                        <parameter name="attention_type" value="autoattencion"/> <!-- Ej: autoattencion, cross_attention, MLA -->
+                    </parameters>
+                </operation>
+
+                <!-- Feed-Forward con condicional para MoE -->
+                <operation id="op_2" type="feed_forward">
+                    <condition>
+                        <if model_type="DeepSeek">
+                            <parameter name="use_moe" value="true"/>
+                        </if>
+                        <else>
+                            <parameter name="use_moe" value="false"/>
+                        </else>
+                    </condition>
+                    <inputs>
+                        <input ref="output_1"/>
+                    </inputs>
+                    <outputs>
+                        <output id="output_2" name="ffn_output"/>
+                    </outputs>
+                    <parameters>
+                        <parameter name="activation" value="GELU"/>
+                    </parameters>
+                </operation>
+
+                <!-- Normalización con condicional para tipo de normalización -->
+                <operation id="op_3" type="normalization">
+                    <condition>
+                        <if model_type="LLAMA 2">
+                            <parameter name="norm_type" value="RMSNorm"/>
+                        </if>
+                        <else>
+                            <parameter name="norm_type" value="LayerNorm"/>
+                        </else>
+                    </condition>
+                    <inputs>
+                        <input ref="output_2"/>
+                    </inputs>
+                    <outputs>
+                        <output id="output_3" name="norm_output"/>
+                    </outputs>
+                </operation>
+            </operations>
+
+            <outputs>
+                <tensor id="output_3" name="layer_output" type="float32"/>
+            </outputs>
+        </layer>
+
+        <!-- Capa específica para ViT (Token de Clase) -->
+        <layer id="layer_2">
+            <condition>
+                <if model_type="ViT">
+                    <inputs>
+                        <tensor id="input_2" name="patch_embeddings" type="float32"/>
+                    </inputs>
+                    <operations>
+                        <operation id="op_4" type="class_token">
+                            <inputs>
+                                <input ref="input_2"/>
+                            </inputs>
+                            <outputs>
+                                <output id="output_4" name="class_token_output"/>
+                            </outputs>
+                        </operation>
+                    </operations>
+                    <outputs>
+                        <tensor id="output_4" name="class_token" type="float32"/>
+                    </outputs>
+                </if>
+            </condition>
+        </layer>
+
+        <!-- Capa específica para Whisper (Cross-Attention) -->
+        <layer id="layer_3">
+            <condition>
+                <if model_type="Whisper">
+                    <inputs>
+                        <tensor id="input_3" name="audio_embeddings" type="float32"/>
+                        <tensor id="input_4" name="text_embeddings" type="float32"/>
+                    </inputs>
+                    <operations>
+                        <operation id="op_5" type="cross_attention">
+                            <inputs>
+                                <input ref="input_3"/>
+                                <input ref="input_4"/>
+                            </inputs>
+                            <outputs>
+                                <output id="output_5" name="cross_attention_output"/>
+                            </outputs>
+                        </operation>
+                    </operations>
+                    <outputs>
+                        <tensor id="output_5" name="cross_attention_output" type="float32"/>
+                    </outputs>
+                </if>
+            </condition>
+        </layer>
+    </layers>
+
+    <!-- Salida del modelo -->
+    <output>
+        <tensor id="final_output" name="model_output" type="float32"/>
+    </output>
+</graph>
