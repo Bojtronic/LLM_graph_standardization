@@ -39,12 +39,22 @@ ggml_tensor * multi_head_attention(ggml_context * ctx, ggml_tensor * Q, ggml_ten
 // - ctx: Contexto de GGML.
 // - input: Tensor de entrada.
 // - use_rmsnorm: Indica si se debe usar RMSNorm (para LLAMA 2 y DeepSeek) o LayerNorm (para ViT y Whisper).
-ggml_tensor * layer_norm(ggml_context * ctx, ggml_tensor * input, bool use_rmsnorm) {
+// - eps: Valor pequeño para estabilidad numérica (evita divisiones por cero).
+ggml_tensor * layer_norm(ggml_context * ctx, ggml_tensor * input, bool use_rmsnorm, float eps) {
     if (use_rmsnorm) {
-        return ggml_rms_norm(ctx, input); // RMSNorm
+        return ggml_rms_norm(ctx, input, eps); // RMSNorm
     } else {
-        return ggml_norm(ctx, input); // LayerNorm
+        return ggml_norm(ctx, input, eps); // LayerNorm
     }
+}
+
+// Implementación de SWIGLU
+ggml_tensor * ggml_swiglu(ggml_context * ctx, ggml_tensor * x) {
+    // Calcular SiLU(x) = x * sigmoid(x)
+    ggml_tensor * silu = ggml_mul(ctx, x, ggml_sigmoid(ctx, x));
+
+    // Calcular SWIGLU(x) = SiLU(x) * x
+    return ggml_mul(ctx, silu, x);
 }
 
 // Módulo de Red Feed-Forward
@@ -69,18 +79,119 @@ ggml_tensor * feed_forward(ggml_context * ctx, ggml_tensor * input, ggml_tensor 
     return output;
 }
 
+// Funciones personalizadas para seno y coseno
+void ggml_sin_f32(int n, float * dest, const float * src) {
+    for (int i = 0; i < n; i++) {
+        dest[i] = sinf(src[i]);
+    }
+}
+
+void ggml_cos_f32(int n, float * dest, const float * src) {
+    for (int i = 0; i < n; i++) {
+        dest[i] = cosf(src[i]);
+    }
+}
+
+// Implementación manual de ggml_pow
+ggml_tensor * ggml_pow(ggml_context * ctx, ggml_tensor * a, ggml_tensor * b) {
+    // Calcular log(a)
+    ggml_tensor * log_a = ggml_log(ctx, a);
+
+    // Calcular b * log(a)
+    ggml_tensor * b_log_a = ggml_mul(ctx, b, log_a);
+
+    // Calcular exp(b * log(a))
+    return ggml_exp(ctx, b_log_a);
+}
+
+// Funciones personalizadas para seno y coseno
+void ggml_sin_f32(int n, float * dest, const float * src) {
+    for (int i = 0; i < n; i++) {
+        dest[i] = sinf(src[i]);
+    }
+}
+
+void ggml_cos_f32(int n, float * dest, const float * src) {
+    for (int i = 0; i < n; i++) {
+        dest[i] = cosf(src[i]);
+    }
+}
+
 // Módulo de Codificaciones Posicionales
 // Parámetros:
 // - ctx: Contexto de GGML.
 // - input: Tensor de entrada.
-// - type: Tipo de codificación posicional (RoPE o sinusoidal).
-ggml_tensor * positional_encoding(ggml_context * ctx, ggml_tensor * input, const char * type) {
+// - type: Tipo de codificación posicional ("rope" o "sinusoidal").
+// - n_dims: Número de dimensiones rotatorias (solo para RoPE).
+// - mode: Modo de RoPE (solo para RoPE).
+// - base: Base para el cálculo de la codificación sinusoidal (solo para sinusoidal).
+ggml_tensor * positional_encoding(
+    ggml_context * ctx,
+    ggml_tensor * input,
+    const char * type,
+    int n_dims,   // Número de dimensiones rotatorias (RoPE)
+    int mode,     // Modo de RoPE (0 para RoPE estándar)
+    float base    // Base para la codificación sinusoidal (sinusoidal)
+) {
     if (strcmp(type, "rope") == 0) {
-        return ggml_rope(ctx, input); // Rotary Positional Embeddings (RoPE)
+        // Rotary Positional Embeddings (RoPE)
+        // Crear un tensor de posiciones (b) para RoPE
+        ggml_tensor * positions = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, input->ne[0]);
+        for (int i = 0; i < input->ne[0]; i++) {
+            ((float *)positions->data)[i] = (float)i;
+        }
+
+        // Aplicar RoPE
+        return ggml_rope(ctx, input, positions, n_dims, mode);
     } else if (strcmp(type, "sinusoidal") == 0) {
-        return ggml_sinusoidal_pos_enc(ctx, input); // Codificación sinusoidal
+        // Codificación posicional sinusoidal
+        int n_pos = input->ne[0]; // Número de posiciones (longitud de la secuencia)
+        int d_model = input->ne[1]; // Dimensionalidad del modelo
+
+        // Crear un tensor para almacenar las posiciones (0, 1, 2, ..., n_pos-1)
+        ggml_tensor * positions = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_pos);
+        for (int pos = 0; pos < n_pos; pos++) {
+            ((float *)positions->data)[pos] = (float)pos;
+        }
+
+        // Crear un tensor para almacenar las dimensiones (0, 1, 2, ..., d_model-1)
+        ggml_tensor * dimensions = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, d_model);
+        for (int i = 0; i < d_model; i++) {
+            ((float *)dimensions->data)[i] = (float)i;
+        }
+
+        // Calcular los ángulos: pos / (base^(i / d_model))
+        ggml_tensor * base_tensor = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, 1);
+        ((float *)base_tensor->data)[0] = base;
+
+        // Calcular base^(i / d_model) usando ggml_pow
+        ggml_tensor * pow_result = ggml_pow(ctx, base_tensor, dimensions);
+
+        // Calcular pos / (base^(i / d_model))
+        ggml_tensor * angles = ggml_div(ctx, positions, pow_result);
+
+        // Calcular las codificaciones posicionales: seno para índices pares, coseno para índices impares
+        ggml_tensor * sin_enc = ggml_map_unary_f32(ctx, angles, ggml_sin_f32); // Seno
+        ggml_tensor * cos_enc = ggml_map_unary_f32(ctx, angles, ggml_cos_f32); // Coseno
+
+        // Combinar seno y coseno en un solo tensor
+        ggml_tensor * pos_enc = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, n_pos, d_model);
+        for (int pos = 0; pos < n_pos; pos++) {
+            for (int i = 0; i < d_model; i++) {
+                float * ptr = (float *)pos_enc->data + pos * d_model + i;
+                if (i % 2 == 0) {
+                    *ptr = ((float *)sin_enc->data)[pos * d_model + i]; // Seno para índices pares
+                } else {
+                    *ptr = ((float *)cos_enc->data)[pos * d_model + i]; // Coseno para índices impares
+                }
+            }
+        }
+
+        // Sumar las codificaciones posicionales al tensor de entrada
+        return ggml_add(ctx, input, pos_enc);
     } else {
-        return input; // Sin codificación posicional
+        // Sin codificación posicional
+        return input;
     }
 }
 

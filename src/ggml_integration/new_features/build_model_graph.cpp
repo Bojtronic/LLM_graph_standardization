@@ -1,6 +1,7 @@
 #include "model_modules.h"
 #include <cstdio>
 #include <cstring>
+#include <cstdlib> // Para rand()
 
 // Función para construir el grafo de cómputo del modelo
 // Parámetros:
@@ -27,9 +28,9 @@ struct ggml_cgraph * build_model_graph(ggml_context * ctx, ggml_tensor * input, 
 
     // Módulo de codificaciones posicionales
     if (strcmp(model_type, "llama2") == 0 || strcmp(model_type, "deepseek") == 0) {
-        embeddings = positional_encoding(ctx, embeddings, "rope");
+        embeddings = positional_encoding(ctx, embeddings, "rope", 64, 0, 10000.0f); // RoPE
     } else if (strcmp(model_type, "vit") == 0) {
-        embeddings = positional_encoding(ctx, embeddings, "sinusoidal");
+        embeddings = positional_encoding(ctx, embeddings, "sinusoidal", 0, 0, 10000.0f); // Sinusoidal
     } else {
         fprintf(stderr, "Advertencia: No se aplicó codificación posicional para el modelo %s.\n", model_type);
     }
@@ -42,6 +43,13 @@ struct ggml_cgraph * build_model_graph(ggml_context * ctx, ggml_tensor * input, 
     if (!Q || !K || !V) {
         fprintf(stderr, "Error: No se pudieron crear los tensores Q, K o V.\n");
         return nullptr;
+    }
+
+    // Inicializar con valores aleatorios (simulación de pesos aprendidos)
+    for (int i = 0; i < 128 * 128; i++) {
+        ((float *)Q->data)[i] = (float)rand() / RAND_MAX;
+        ((float *)K->data)[i] = (float)rand() / RAND_MAX;
+        ((float *)V->data)[i] = (float)rand() / RAND_MAX;
     }
 
     // Módulo de atención
@@ -87,7 +95,7 @@ struct ggml_cgraph * build_model_graph(ggml_context * ctx, ggml_tensor * input, 
 
     // Módulo de normalización
     bool use_rmsnorm = (strcmp(model_type, "llama2") == 0 || strcmp(model_type, "deepseek") == 0);
-    ff_output = layer_norm(ctx, ff_output, use_rmsnorm);
+    ff_output = layer_norm(ctx, ff_output, use_rmsnorm, 1e-6f); // eps = 1e-6
 
     if (!ff_output) {
         fprintf(stderr, "Error: No se pudo aplicar la normalización.\n");
@@ -99,4 +107,3 @@ struct ggml_cgraph * build_model_graph(ggml_context * ctx, ggml_tensor * input, 
 
     return gf;
 }
-
