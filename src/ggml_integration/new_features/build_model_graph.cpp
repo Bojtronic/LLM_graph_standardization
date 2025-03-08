@@ -1,7 +1,5 @@
-#include "model_modules.h"
-#include <cstdio>
-#include <cstring>
-#include <cstdlib> // Para rand()
+#include "build_model_graph.h"
+
 
 // Función para construir el grafo de cómputo del modelo
 // Parámetros:
