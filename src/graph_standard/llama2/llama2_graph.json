@@ -1,1 +1,52 @@
-.
+{
+    "metadata": {
+      "model_name": "{model_name}",
+      "max_nodes": "{max_nodes}",
+      "n_tokens": "{n_tokens}",
+      "n_embd_head": "{n_embd_head}",
+      "n_layer": "{n_layer}"
+    },
+    "layers": [
+      {
+        "id": "{layer_id}",
+        "inputs": [
+          {
+            "name": "{tensor_name}",
+            "type": "{tensor_type}"
+          }
+        ],
+        "operations": [
+          {
+            "type": "{operation_type}",
+            "inputs": [
+              {
+                "ref": "{input_tensor_name}"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "{output_tensor_name}"
+              }
+            ],
+            "parameters": [
+              {
+                "name": "{parameter_name}",
+                "value": "{parameter_value}"
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "name": "{output_tensor_name}",
+            "type": "{tensor_type}"
+          }
+        ]
+      }
+    ],
+    "output": {
+      "name": "{final_output_name}",
+      "type": "model_output"
+    }
+  }
+  

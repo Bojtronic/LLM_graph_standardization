@@ -1,1 +1,202 @@
-.
+@prefix model: <urn:uuid:3edeeccf-acc8-4991-a6f2-cdf395eb8fbe#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Metadatos del modelo
+model:Graph a model:Graph ;
+    model:hasMetadata [
+        model:modelName "{model_name}" ;
+        model:nAudioCtx "{n_audio_ctx}"^^xsd:integer ;
+        model:nTextState "{n_text_state}"^^xsd:integer ;
+        model:nTextHead "{n_text_head}"^^xsd:integer ;
+        model:nTextLayer "{n_text_layer}"^^xsd:integer ;
+        model:nTokens "{n_tokens}"^^xsd:integer ;
+    ] .
+
+# Entradas del modelo
+model:embd a model:Tensor ;
+    model:name "embd" ;
+    model:type "input" ;
+    model:shape "{n_tokens}" .
+
+model:position a model:Tensor ;
+    model:name "position" ;
+    model:type "input" ;
+    model:shape "{n_tokens}" .
+
+model:KQ_mask a model:Tensor ;
+    model:name "KQ_mask" ;
+    model:type "input" ;
+    model:shape "{n_kv}x{n_tokens}x1" .
+
+# Operaciones
+model:op_add a model:Operation ;
+    model:type "add" ;
+    model:hasInput model:embd, model:position ;
+    model:hasOutput model:inpL .
+
+model:inpL a model:Tensor ;
+    model:name "inpL" ;
+    model:type "embedding" .
+
+# Capa de Decodificador
+model:layer_{layer_id} a model:Layer ;
+    model:hasInput model:inpL ;
+    model:hasOperation model:op_norm, model:op_self_attention, model:op_linear, model:op_add_skip, model:op_cross_attention, model:op_feed_forward, model:op_add_final ;
+    model:hasOutput model:layer_output .
+
+# Normalización
+model:op_norm a model:Operation ;
+    model:type "norm" ;
+    model:hasInput model:inpL ;
+    model:hasOutput model:norm_output ;
+    model:hasParameter [
+        model:name "weights" ;
+        model:ref "{attn_ln_0_w}" ;
+    ], [
+        model:name "bias" ;
+        model:ref "{attn_ln_0_b}" ;
+    ] .
+
+model:norm_output a model:Tensor ;
+    model:name "norm_output" ;
+    model:type "output" .
+
+# Self-Attention
+model:op_self_attention a model:Operation ;
+    model:type "self_attention" ;
+    model:hasInput model:norm_output ;
+    model:hasOutput model:attention_output ;
+    model:hasParameter [
+        model:name "q_weights" ;
+        model:ref "{attn_q_w}" ;
+    ], [
+        model:name "q_bias" ;
+        model:ref "{attn_q_b}" ;
+    ], [
+        model:name "k_weights" ;
+        model:ref "{attn_k_w}" ;
+    ], [
+        model:name "v_weights" ;
+        model:ref "{attn_v_w}" ;
+    ], [
+        model:name "v_bias" ;
+        model:ref "{attn_v_b}" ;
+    ], [
+        model:name "scale" ;
+        model:value "{KQscale}"^^xsd:float ;
+    ] .
+
+model:attention_output a model:Tensor ;
+    model:name "attention_output" ;
+    model:type "output" .
+
+# Proyección
+model:op_linear a model:Operation ;
+    model:type "linear" ;
+    model:hasInput model:attention_output ;
+    model:hasOutput model:proj_output ;
+    model:hasParameter [
+        model:name "weights" ;
+        model:ref "{attn_ln_1_w}" ;
+    ], [
+        model:name "bias" ;
+        model:ref "{attn_ln_1_b}" ;
+    ] .
+
+model:proj_output a model:Tensor ;
+    model:name "proj_output" ;
+    model:type "output" .
+
+# Skip Connection
+model:op_add_skip a model:Operation ;
+    model:type "add" ;
+    model:hasInput model:proj_output, model:inpL ;
+    model:hasOutput model:skip_output .
+
+model:skip_output a model:Tensor ;
+    model:name "skip_output" ;
+    model:type "output" .
+
+# Cross-Attention
+model:op_cross_attention a model:Operation ;
+    model:type "cross_attention" ;
+    model:hasInput model:skip_output ;
+    model:hasOutput model:cross_output ;
+    model:hasParameter [
+        model:name "q_weights" ;
+        model:ref "{cross_attn_q_w}" ;
+    ], [
+        model:name "q_bias" ;
+        model:ref "{cross_attn_q_b}" ;
+    ], [
+        model:name "k_weights" ;
+        model:ref "{cross_attn_k_w}" ;
+    ], [
+        model:name "v_weights" ;
+        model:ref "{cross_attn_v_w}" ;
+    ], [
+        model:name "v_bias" ;
+        model:ref "{cross_attn_v_b}" ;
+    ], [
+        model:name "scale" ;
+        model:value "{KQscale}"^^xsd:float ;
+    ] .
+
+model:cross_output a model:Tensor ;
+    model:name "cross_output" ;
+    model:type "output" .
+
+# Feed-Forward Network
+model:op_feed_forward a model:Operation ;
+    model:type "feed_forward" ;
+    model:hasInput model:cross_output ;
+    model:hasOutput model:ffn_output ;
+    model:hasParameter [
+        model:name "lin1_weights" ;
+        model:ref "{mlp_0_w}" ;
+    ], [
+        model:name "lin1_bias" ;
+        model:ref "{mlp_0_b}" ;
+    ], [
+        model:name "lin2_weights" ;
+        model:ref "{mlp_1_w}" ;
+    ], [
+        model:name "lin2_bias" ;
+        model:ref "{mlp_1_b}" ;
+    ] .
+
+model:ffn_output a model:Tensor ;
+    model:name "ffn_output" ;
+    model:type "output" .
+
+# Skip Connection Final
+model:op_add_final a model:Operation ;
+    model:type "add" ;
+    model:hasInput model:ffn_output, model:skip_output ;
+    model:hasOutput model:layer_output .
+
+model:layer_output a model:Tensor ;
+    model:name "layer_output" ;
+    model:type "embedding" .
+
+# Normalización Final
+model:op_final_norm a model:Operation ;
+    model:type "norm" ;
+    model:hasInput model:final_layer_output ;
+    model:hasOutput model:final_norm_output ;
+    model:hasParameter [
+        model:name "weights" ;
+        model:ref "{d_ln_w}" ;
+    ], [
+        model:name "bias" ;
+        model:ref "{d_ln_b}" ;
+    ] .
+
+model:final_norm_output a model:Tensor ;
+    model:name "final_norm_output" ;
+    model:type "output" .
+
+# Salida del modelo
+model:logits a model:Tensor ;
+    model:name "logits" ;
+    model:type "output" .

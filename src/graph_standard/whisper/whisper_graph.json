@@ -1,0 +1,680 @@
+{
+    "graph": {
+      "metadata": {
+        "model_name": "Whisper",
+        "input_shape": "{input_shape}",
+        "output_shape": "{output_shape}",
+        "n_audio_ctx": "{n_audio_ctx}",
+        "n_audio_state": "{n_audio_state}",
+        "n_audio_head": "{n_audio_head}",
+        "n_audio_layer": "{n_audio_layer}",
+        "n_text_state": "{n_text_state}",
+        "n_text_head": "{n_text_head}",
+        "n_text_layer": "{n_text_layer}",
+        "n_tokens": "{n_tokens}"
+      },
+      "inputs": {
+        "tensor": {
+          "name": "input",
+          "type": "input",
+          "shape": "{input_shape}"
+        }
+      },
+      "operations": {
+        "operation": [
+          {
+            "type": "conv1d",
+            "inputs": {
+              "input": {
+                "ref": "input"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "conv_output"
+              }
+            },
+            "parameters": {
+              "parameter": [
+                {
+                  "name": "weights",
+                  "ref": "{conv_weights_ref}"
+                },
+                {
+                  "name": "bias",
+                  "ref": "{conv_bias_ref}"
+                }
+              ]
+            }
+          },
+          {
+            "type": "activation",
+            "inputs": {
+              "input": {
+                "ref": "conv_output"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "activation_output"
+              }
+            },
+            "parameters": {
+              "parameter": {
+                "name": "type",
+                "value": "GELU"
+              }
+            }
+          },
+          {
+            "type": "conv1d",
+            "inputs": {
+              "input": {
+                "ref": "activation_output"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "embd_conv"
+              }
+            },
+            "parameters": {
+              "parameter": [
+                {
+                  "name": "weights",
+                  "ref": "{final_conv_weights_ref}"
+                },
+                {
+                  "name": "bias",
+                  "ref": "{final_conv_bias_ref}"
+                }
+              ]
+            }
+          },
+          {
+            "type": "activation",
+            "inputs": {
+              "input": {
+                "ref": "embd_conv"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "final_conv_output"
+              }
+            },
+            "parameters": {
+              "parameter": {
+                "name": "type",
+                "value": "GELU"
+              }
+            }
+          },
+          {
+            "type": "add",
+            "inputs": {
+              "input": [
+                {
+                  "ref": "final_conv_output"
+                },
+                {
+                  "ref": "e_pe"
+                }
+              ]
+            },
+            "outputs": {
+              "output": {
+                "name": "inpL_encoder"
+              }
+            }
+          },
+          {
+            "type": "norm",
+            "inputs": {
+              "input": {
+                "ref": "inpL_encoder"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "norm_output"
+              }
+            },
+            "parameters": {
+              "parameter": [
+                {
+                  "name": "weights",
+                  "ref": "{attn_ln_0_w}"
+                },
+                {
+                  "name": "bias",
+                  "ref": "{attn_ln_0_b}"
+                }
+              ]
+            }
+          },
+          {
+            "type": "self_attention",
+            "inputs": {
+              "input": {
+                "ref": "norm_output"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "attention_output"
+              }
+            },
+            "parameters": {
+              "parameter": [
+                {
+                  "name": "q_weights",
+                  "ref": "{attn_q_w}"
+                },
+                {
+                  "name": "q_bias",
+                  "ref": "{attn_q_b}"
+                },
+                {
+                  "name": "k_weights",
+                  "ref": "{attn_k_w}"
+                },
+                {
+                  "name": "v_weights",
+                  "ref": "{attn_v_w}"
+                },
+                {
+                  "name": "v_bias",
+                  "ref": "{attn_v_b}"
+                },
+                {
+                  "name": "scale",
+                  "value": "{KQscale}"
+                }
+              ]
+            }
+          },
+          {
+            "type": "linear",
+            "inputs": {
+              "input": {
+                "ref": "attention_output"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "proj_output"
+              }
+            },
+            "parameters": {
+              "parameter": [
+                {
+                  "name": "weights",
+                  "ref": "{attn_ln_1_w}"
+                },
+                {
+                  "name": "bias",
+                  "ref": "{attn_ln_1_b}"
+                }
+              ]
+            }
+          },
+          {
+            "type": "add",
+            "inputs": {
+              "input": [
+                {
+                  "ref": "proj_output"
+                },
+                {
+                  "ref": "inpL_encoder"
+                }
+              ]
+            },
+            "outputs": {
+              "output": {
+                "name": "skip_output"
+              }
+            }
+          },
+          {
+            "type": "feed_forward",
+            "inputs": {
+              "input": {
+                "ref": "skip_output"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "ffn_output"
+              }
+            },
+            "parameters": {
+              "parameter": [
+                {
+                  "name": "lin1_weights",
+                  "ref": "{mlp_0_w}"
+                },
+                {
+                  "name": "lin1_bias",
+                  "ref": "{mlp_0_b}"
+                },
+                {
+                  "name": "lin2_weights",
+                  "ref": "{mlp_1_w}"
+                },
+                {
+                  "name": "lin2_bias",
+                  "ref": "{mlp_1_b}"
+                }
+              ]
+            }
+          },
+          {
+            "type": "add",
+            "inputs": {
+              "input": [
+                {
+                  "ref": "ffn_output"
+                },
+                {
+                  "ref": "skip_output"
+                }
+              ]
+            },
+            "outputs": {
+              "output": {
+                "name": "encoder_layer_output"
+              }
+            }
+          },
+          {
+            "type": "norm",
+            "inputs": {
+              "input": {
+                "ref": "encoder_layer_output"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "embd_enc"
+              }
+            },
+            "parameters": {
+              "parameter": [
+                {
+                  "name": "weights",
+                  "ref": "{e_ln_w}"
+                },
+                {
+                  "name": "bias",
+                  "ref": "{e_ln_b}"
+                }
+              ]
+            }
+          },
+          {
+            "type": "mul_mat",
+            "inputs": {
+              "input": {
+                "ref": "embd_enc"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "Kcross"
+              }
+            },
+            "parameters": {
+              "parameter": {
+                "name": "weights",
+                "ref": "{cross_attn_k_w}"
+              }
+            }
+          },
+          {
+            "type": "scale",
+            "inputs": {
+              "input": {
+                "ref": "Kcross"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "Kcross_scaled"
+              }
+            },
+            "parameters": {
+              "parameter": {
+                "name": "scale",
+                "value": "{Kscale}"
+              }
+            }
+          },
+          {
+            "type": "mul_mat",
+            "inputs": {
+              "input": {
+                "ref": "embd_enc"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "Vcross"
+              }
+            },
+            "parameters": {
+              "parameter": {
+                "name": "weights",
+                "ref": "{cross_attn_v_w}"
+              }
+            }
+          },
+          {
+            "type": "add",
+            "inputs": {
+              "input": [
+                {
+                  "ref": "Vcross"
+                },
+                {
+                  "ref": "{cross_attn_v_b}"
+                }
+              ]
+            },
+            "outputs": {
+              "output": {
+                "name": "Vcross_bias"
+              }
+            }
+          },
+          {
+            "type": "copy",
+            "inputs": {
+              "input": {
+                "ref": "Kcross_scaled"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "k"
+              }
+            }
+          },
+          {
+            "type": "copy",
+            "inputs": {
+              "input": {
+                "ref": "Vcross_bias"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "v"
+              }
+            }
+          },
+          {
+            "type": "add",
+            "inputs": {
+              "input": [
+                {
+                  "ref": "embd"
+                },
+                {
+                  "ref": "position"
+                }
+              ]
+            },
+            "outputs": {
+              "output": {
+                "name": "inpL_decoder"
+              }
+            }
+          },
+          {
+            "type": "norm",
+            "inputs": {
+              "input": {
+                "ref": "inpL_decoder"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "norm_output"
+              }
+            },
+            "parameters": {
+              "parameter": [
+                {
+                  "name": "weights",
+                  "ref": "{attn_ln_0_w}"
+                },
+                {
+                  "name": "bias",
+                  "ref": "{attn_ln_0_b}"
+                }
+              ]
+            }
+          },
+          {
+            "type": "self_attention",
+            "inputs": {
+              "input": {
+                "ref": "norm_output"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "attention_output"
+              }
+            },
+            "parameters": {
+              "parameter": [
+                {
+                  "name": "q_weights",
+                  "ref": "{attn_q_w}"
+                },
+                {
+                  "name": "q_bias",
+                  "ref": "{attn_q_b}"
+                },
+                {
+                  "name": "k_weights",
+                  "ref": "{attn_k_w}"
+                },
+                {
+                  "name": "v_weights",
+                  "ref": "{attn_v_w}"
+                },
+                {
+                  "name": "v_bias",
+                  "ref": "{attn_v_b}"
+                },
+                {
+                  "name": "scale",
+                  "value": "{KQscale}"
+                }
+              ]
+            }
+          },
+          {
+            "type": "linear",
+            "inputs": {
+              "input": {
+                "ref": "attention_output"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "proj_output"
+              }
+            },
+            "parameters": {
+              "parameter": [
+                {
+                  "name": "weights",
+                  "ref": "{attn_ln_1_w}"
+                },
+                {
+                  "name": "bias",
+                  "ref": "{attn_ln_1_b}"
+                }
+              ]
+            }
+          },
+          {
+            "type": "add",
+            "inputs": {
+              "input": [
+                {
+                  "ref": "proj_output"
+                },
+                {
+                  "ref": "inpL_decoder"
+                }
+              ]
+            },
+            "outputs": {
+              "output": {
+                "name": "skip_output"
+              }
+            }
+          },
+          {
+            "type": "cross_attention",
+            "inputs": {
+              "input": [
+                {
+                  "ref": "skip_output"
+                },
+                {
+                  "ref": "k"
+                },
+                {
+                  "ref": "v"
+                }
+              ]
+            },
+            "outputs": {
+              "output": {
+                "name": "cross_output"
+              }
+            },
+            "parameters": {
+              "parameter": [
+                {
+                  "name": "q_weights",
+                  "ref": "{cross_attn_q_w}"
+                },
+                {
+                  "name": "q_bias",
+                  "ref": "{cross_attn_q_b}"
+                },
+                {
+                  "name": "k_weights",
+                  "ref": "{cross_attn_k_w}"
+                },
+                {
+                  "name": "v_weights",
+                  "ref": "{cross_attn_v_w}"
+                },
+                {
+                  "name": "v_bias",
+                  "ref": "{cross_attn_v_b}"
+                },
+                {
+                  "name": "scale",
+                  "value": "{KQscale}"
+                }
+              ]
+            }
+          },
+          {
+            "type": "feed_forward",
+            "inputs": {
+              "input": {
+                "ref": "cross_output"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "ffn_output"
+              }
+            },
+            "parameters": {
+              "parameter": [
+                {
+                  "name": "lin1_weights",
+                  "ref": "{mlp_0_w}"
+                },
+                {
+                  "name": "lin1_bias",
+                  "ref": "{mlp_0_b}"
+                },
+                {
+                  "name": "lin2_weights",
+                  "ref": "{mlp_1_w}"
+                },
+                {
+                  "name": "lin2_bias",
+                  "ref": "{mlp_1_b}"
+                }
+              ]
+            }
+          },
+          {
+            "type": "add",
+            "inputs": {
+              "input": [
+                {
+                  "ref": "ffn_output"
+                },
+                {
+                  "ref": "skip_output"
+                }
+              ]
+            },
+            "outputs": {
+              "output": {
+                "name": "decoder_layer_output"
+              }
+            }
+          },
+          {
+            "type": "norm",
+            "inputs": {
+              "input": {
+                "ref": "decoder_layer_output"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "final_norm_output"
+              }
+            },
+            "parameters": {
+              "parameter": [
+                {
+                  "name": "weights",
+                  "ref": "{d_ln_w}"
+                },
+                {
+                  "name": "bias",
+                  "ref": "{d_ln_b}"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "outputs": {
+        "tensor": {
+          "name": "logits",
+          "type": "output",
+          "shape": "{output_shape}"
+        }
+      }
+    }
+  }
+  

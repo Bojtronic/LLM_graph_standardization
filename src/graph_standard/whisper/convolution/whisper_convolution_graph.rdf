@@ -1,1 +1,82 @@
-.
+@prefix model: <urn:uuid:4de7b89e-8d30-47a4-a2a0-1f7f2ade34ee#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Metadatos del modelo
+model:Graph a model:Graph ;
+    model:hasMetadata [
+        model:modelName "{model_name}" ;
+        model:inputShape "{input_shape}" ;
+        model:outputShape "{output_shape}" ;
+    ] .
+
+# Entradas del modelo
+model:input a model:Tensor ;
+    model:name "input" ;
+    model:type "input" ;
+    model:shape "{input_shape}" .
+
+# Operaciones
+model:op_conv1d a model:Operation ;
+    model:type "conv1d" ;
+    model:hasInput model:input ;
+    model:hasOutput model:conv_output ;
+    model:hasParameter [
+        model:name "weights" ;
+        model:ref "{conv_weights_ref}" ;
+    ], [
+        model:name "bias" ;
+        model:ref "{conv_bias_ref}" ;
+    ] .
+
+model:conv_output a model:Tensor ;
+    model:name "conv_output" ;
+    model:type "output" .
+
+model:op_activation a model:Operation ;
+    model:type "activation" ;
+    model:hasInput model:conv_output ;
+    model:hasOutput model:activation_output ;
+    model:hasParameter [
+        model:name "type" ;
+        model:value "{activation_type}" ;
+    ] .
+
+model:activation_output a model:Tensor ;
+    model:name "activation_output" ;
+    model:type "output" .
+
+model:op_final_conv1d a model:Operation ;
+    model:type "conv1d" ;
+    model:hasInput model:activation_output ;
+    model:hasOutput model:final_conv_output ;
+    model:hasParameter [
+        model:name "weights" ;
+        model:ref "{final_conv_weights_ref}" ;
+    ], [
+        model:name "bias" ;
+        model:ref "{final_conv_bias_ref}" ;
+    ] .
+
+model:final_conv_output a model:Tensor ;
+    model:name "final_conv_output" ;
+    model:type "output" .
+
+model:op_final_activation a model:Operation ;
+    model:type "activation" ;
+    model:hasInput model:final_conv_output ;
+    model:hasOutput model:final_output ;
+    model:hasParameter [
+        model:name "type" ;
+        model:value "{activation_type}" ;
+    ] .
+
+model:final_output a model:Tensor ;
+    model:name "final_output" ;
+    model:type "output" ;
+    model:shape "{output_shape}" .
+
+# Salidas del modelo
+model:final_output a model:Tensor ;
+    model:name "final_output" ;
+    model:type "output" ;
+    model:shape "{output_shape}" .

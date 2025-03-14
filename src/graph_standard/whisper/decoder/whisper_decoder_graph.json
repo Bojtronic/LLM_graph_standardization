@@ -1,1 +1,294 @@
-.
+{
+    "graph": {
+      "metadata": {
+        "model_name": "{model_name}",
+        "n_audio_ctx": "{n_audio_ctx}",
+        "n_text_state": "{n_text_state}",
+        "n_text_head": "{n_text_head}",
+        "n_text_layer": "{n_text_layer}",
+        "n_tokens": "{n_tokens}"
+      },
+      "inputs": {
+        "tensors": [
+          {
+            "name": "embd",
+            "type": "input",
+            "shape": "{n_tokens}"
+          },
+          {
+            "name": "position",
+            "type": "input",
+            "shape": "{n_tokens}"
+          },
+          {
+            "name": "KQ_mask",
+            "type": "input",
+            "shape": "{n_kv}x{n_tokens}x1"
+          }
+        ]
+      },
+      "operations": {
+        "operation": [
+          {
+            "type": "add",
+            "inputs": [
+              {
+                "ref": "embd"
+              },
+              {
+                "ref": "position"
+              }
+            ],
+            "outputs": [
+              {
+                "name": "inpL"
+              }
+            ]
+          },
+          {
+            "layer": {
+              "id": "{layer_id}",
+              "inputs": [
+                {
+                  "tensor": {
+                    "name": "inpL",
+                    "type": "embedding"
+                  }
+                }
+              ],
+              "operations": [
+                {
+                  "type": "norm",
+                  "inputs": [
+                    {
+                      "ref": "inpL"
+                    }
+                  ],
+                  "outputs": [
+                    {
+                      "name": "norm_output"
+                    }
+                  ],
+                  "parameters": [
+                    {
+                      "name": "weights",
+                      "ref": "{attn_ln_0_w}"
+                    },
+                    {
+                      "name": "bias",
+                      "ref": "{attn_ln_0_b}"
+                    }
+                  ]
+                },
+                {
+                  "type": "self_attention",
+                  "inputs": [
+                    {
+                      "ref": "norm_output"
+                    }
+                  ],
+                  "outputs": [
+                    {
+                      "name": "attention_output"
+                    }
+                  ],
+                  "parameters": [
+                    {
+                      "name": "q_weights",
+                      "ref": "{attn_q_w}"
+                    },
+                    {
+                      "name": "q_bias",
+                      "ref": "{attn_q_b}"
+                    },
+                    {
+                      "name": "k_weights",
+                      "ref": "{attn_k_w}"
+                    },
+                    {
+                      "name": "v_weights",
+                      "ref": "{attn_v_w}"
+                    },
+                    {
+                      "name": "v_bias",
+                      "ref": "{attn_v_b}"
+                    },
+                    {
+                      "name": "scale",
+                      "value": "{KQscale}"
+                    }
+                  ]
+                },
+                {
+                  "type": "linear",
+                  "inputs": [
+                    {
+                      "ref": "attention_output"
+                    }
+                  ],
+                  "outputs": [
+                    {
+                      "name": "proj_output"
+                    }
+                  ],
+                  "parameters": [
+                    {
+                      "name": "weights",
+                      "ref": "{attn_ln_1_w}"
+                    },
+                    {
+                      "name": "bias",
+                      "ref": "{attn_ln_1_b}"
+                    }
+                  ]
+                },
+                {
+                  "type": "add",
+                  "inputs": [
+                    {
+                      "ref": "proj_output"
+                    },
+                    {
+                      "ref": "inpL"
+                    }
+                  ],
+                  "outputs": [
+                    {
+                      "name": "skip_output"
+                    }
+                  ]
+                },
+                {
+                  "type": "cross_attention",
+                  "inputs": [
+                    {
+                      "ref": "skip_output"
+                    }
+                  ],
+                  "outputs": [
+                    {
+                      "name": "cross_output"
+                    }
+                  ],
+                  "parameters": [
+                    {
+                      "name": "q_weights",
+                      "ref": "{cross_attn_q_w}"
+                    },
+                    {
+                      "name": "q_bias",
+                      "ref": "{cross_attn_q_b}"
+                    },
+                    {
+                      "name": "k_weights",
+                      "ref": "{cross_attn_k_w}"
+                    },
+                    {
+                      "name": "v_weights",
+                      "ref": "{cross_attn_v_w}"
+                    },
+                    {
+                      "name": "v_bias",
+                      "ref": "{cross_attn_v_b}"
+                    },
+                    {
+                      "name": "scale",
+                      "value": "{KQscale}"
+                    }
+                  ]
+                },
+                {
+                  "type": "feed_forward",
+                  "inputs": [
+                    {
+                      "ref": "cross_output"
+                    }
+                  ],
+                  "outputs": [
+                    {
+                      "name": "ffn_output"
+                    }
+                  ],
+                  "parameters": [
+                    {
+                      "name": "lin1_weights",
+                      "ref": "{mlp_0_w}"
+                    },
+                    {
+                      "name": "lin1_bias",
+                      "ref": "{mlp_0_b}"
+                    },
+                    {
+                      "name": "lin2_weights",
+                      "ref": "{mlp_1_w}"
+                    },
+                    {
+                      "name": "lin2_bias",
+                      "ref": "{mlp_1_b}"
+                    }
+                  ]
+                },
+                {
+                  "type": "add",
+                  "inputs": [
+                    {
+                      "ref": "ffn_output"
+                    },
+                    {
+                      "ref": "skip_output"
+                    }
+                  ],
+                  "outputs": [
+                    {
+                      "name": "layer_output"
+                    }
+                  ]
+                }
+              ],
+              "outputs": [
+                {
+                  "tensor": {
+                    "name": "layer_output",
+                    "type": "embedding"
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "outputs": {
+        "operation": {
+          "type": "norm",
+          "inputs": [
+            {
+              "ref": "final_layer_output"
+            }
+          ],
+          "outputs": [
+            {
+              "name": "final_norm_output"
+            }
+          ],
+          "parameters": [
+            {
+              "name": "weights",
+              "ref": "{d_ln_w}"
+            },
+            {
+              "name": "bias",
+              "ref": "{d_ln_b}"
+            }
+          ]
+        },
+        "outputs": [
+          {
+            "tensor": {
+              "name": "logits",
+              "type": "output"
+            }
+          }
+        ]
+      }
+    }
+  }

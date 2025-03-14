@@ -1,1 +1,153 @@
-.
+@prefix model: <urn:uuid:2ca6c86d-b201-4c46-8fcc-bdd82bb2c8a7#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Metadatos del modelo
+model:Model a model:Model ;
+    model:hasMetadata [
+        model:modelName "MiModelo" ;
+        model:maxNodes "100"^^xsd:integer ;
+        model:nTokens "512"^^xsd:integer ;
+        model:nEmbdHead "64"^^xsd:integer ;
+        model:nLayer "12"^^xsd:integer ;
+        model:modelType "LLAMA 2" ;
+    ] .
+
+# Capa genérica (común a todos los modelos)
+model:layer_1 a model:Layer ;
+    model:hasInput model:input_1 ;
+    model:hasOperation model:op_1, model:op_2, model:op_3 ;
+    model:hasOutput model:output_3 .
+
+model:input_1 a model:Tensor ;
+    model:name "input_tensor" ;
+    model:type "float32" .
+
+model:op_1 a model:Operation ;
+    model:type "multi_head_attention" ;
+    model:hasInput model:input_1 ;
+    model:hasOutput model:output_1 ;
+    model:hasParameter [
+        model:name "n_heads" ;
+        model:value "8"^^xsd:integer ;
+    ], [
+        model:name "is_causal" ;
+        model:value "true"^^xsd:boolean ;
+    ] .
+
+model:output_1 a model:Tensor ;
+    model:name "attention_output" ;
+    model:type "float32" .
+
+model:op_2 a model:Operation ;
+    model:type "feed_forward" ;
+    model:hasInput model:output_1 ;
+    model:hasOutput model:output_2 ;
+    model:hasParameter [
+        model:name "activation" ;
+        model:value "gelu" ;
+    ] .
+
+model:output_2 a model:Tensor ;
+    model:name "ffn_output" ;
+    model:type "float32" .
+
+model:op_3 a model:Operation ;
+    model:type "layer_norm" ;
+    model:hasInput model:output_2 ;
+    model:hasOutput model:output_3 ;
+    model:hasParameter [
+        model:name "use_rmsnorm" ;
+        model:value "true"^^xsd:boolean ;
+    ], [
+        model:name "eps" ;
+        model:value "1e-5"^^xsd:float ;
+    ] .
+
+model:output_3 a model:Tensor ;
+    model:name "layer_output" ;
+    model:type "float32" .
+
+# Capa específica para ViT (Token de Clase)
+model:layer_2 a model:Layer ;
+    model:hasCondition [
+        a model:Condition ;
+        model:if model:modelType "ViT" ;
+        model:hasInput model:input_2 ;
+        model:hasOperation model:op_4 ;
+        model:hasOutput model:output_4 ;
+    ] .
+
+model:input_2 a model:Tensor ;
+    model:name "patch_embeddings" ;
+    model:type "float32" .
+
+model:op_4 a model:Operation ;
+    model:type "class_token" ;
+    model:hasInput model:input_2 ;
+    model:hasOutput model:output_4 .
+
+model:output_4 a model:Tensor ;
+    model:name "class_token_output" ;
+    model:type "float32" .
+
+# Capa específica para Whisper (Cross-Attention)
+model:layer_3 a model:Layer ;
+    model:hasCondition [
+        a model:Condition ;
+        model:if model:modelType "Whisper" ;
+        model:hasInput model:input_3, model:input_4 ;
+        model:hasOperation model:op_5 ;
+        model:hasOutput model:output_5 ;
+    ] .
+
+model:input_3 a model:Tensor ;
+    model:name "audio_embeddings" ;
+    model:type "float32" .
+
+model:input_4 a model:Tensor ;
+    model:name "text_embeddings" ;
+    model:type "float32" .
+
+model:op_5 a model:Operation ;
+    model:type "cross_attention" ;
+    model:hasInput model:input_3, model:input_4 ;
+    model:hasOutput model:output_5 .
+
+model:output_5 a model:Tensor ;
+    model:name "cross_attention_output" ;
+    model:type "float32" .
+
+# Capa específica para LLAMA 2 (RMSNorm)
+model:layer_4 a model:Layer ;
+    model:hasCondition [
+        a model:Condition ;
+        model:if model:modelType "LLAMA 2" ;
+        model:hasInput model:input_5 ;
+        model:hasOperation model:op_6 ;
+        model:hasOutput model:output_6 ;
+    ] .
+
+model:input_5 a model:Tensor ;
+    model:name "llama_input" ;
+    model:type "float32" .
+
+model:op_6 a model:Operation ;
+    model:type "layer_norm" ;
+    model:hasInput model:input_5 ;
+    model:hasOutput model:output_6 ;
+    model:hasParameter [
+        model:name "use_rmsnorm" ;
+        model:value "true"^^xsd:boolean ;
+    ], [
+        model:name "eps" ;
+        model:value "1e-5"^^xsd:float ;
+    ] .
+
+model:output_6 a model:Tensor ;
+    model:name "rmsnorm_output" ;
+    model:type "float32" .
+
+# Salida del modelo
+model:final_output a model:Tensor ;
+    model:name "model_output" ;
+    model:type "float32" .

@@ -1,1 +1,102 @@
-.
+@prefix model: <urn:uuid:9ea69a3f-ec41-4d23-aa37-02f986f40c8c#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Metadatos del modelo
+model:Graph a model:Graph ;
+    model:hasMetadata [
+        model:modelName "{model_name}" ;
+        model:nAudioCtx "{n_audio_ctx}"^^xsd:integer ;
+        model:nAudioState "{n_audio_state}"^^xsd:integer ;
+        model:nAudioHead "{n_audio_head}"^^xsd:integer ;
+        model:nTextLayer "{n_text_layer}"^^xsd:integer ;
+    ] .
+
+# Entradas del modelo
+model:embd_enc a model:Tensor ;
+    model:name "embd_enc" ;
+    model:type "input" ;
+    model:shape "{n_state}x{n_audio_ctx}" .
+
+# Capa de Cross-Attention
+model:layer_{layer_id} a model:Layer ;
+    model:hasInput model:embd_enc ;
+    model:hasOperation model:op_mul_mat_k, model:op_scale_k, model:op_mul_mat_v, model:op_add_v, model:op_copy_k, model:op_copy_v ;
+    model:hasOutput model:k, model:v .
+
+# Cross-Attention Key
+model:op_mul_mat_k a model:Operation ;
+    model:type "mul_mat" ;
+    model:hasInput model:embd_enc ;
+    model:hasOutput model:Kcross ;
+    model:hasParameter [
+        model:name "weights" ;
+        model:ref "{cross_attn_k_w}" ;
+    ] .
+
+model:Kcross a model:Tensor ;
+    model:name "Kcross" ;
+    model:type "output" .
+
+model:op_scale_k a model:Operation ;
+    model:type "scale" ;
+    model:hasInput model:Kcross ;
+    model:hasOutput model:Kcross_scaled ;
+    model:hasParameter [
+        model:name "scale" ;
+        model:value "{Kscale}"^^xsd:float ;
+    ] .
+
+model:Kcross_scaled a model:Tensor ;
+    model:name "Kcross_scaled" ;
+    model:type "output" .
+
+# Cross-Attention Value
+model:op_mul_mat_v a model:Operation ;
+    model:type "mul_mat" ;
+    model:hasInput model:embd_enc ;
+    model:hasOutput model:Vcross ;
+    model:hasParameter [
+        model:name "weights" ;
+        model:ref "{cross_attn_v_w}" ;
+    ] .
+
+model:Vcross a model:Tensor ;
+    model:name "Vcross" ;
+    model:type "output" .
+
+model:op_add_v a model:Operation ;
+    model:type "add" ;
+    model:hasInput model:Vcross, model:cross_attn_v_b ;
+    model:hasOutput model:Vcross_bias .
+
+model:Vcross_bias a model:Tensor ;
+    model:name "Vcross_bias" ;
+    model:type "output" .
+
+# Copia a memoria KV
+model:op_copy_k a model:Operation ;
+    model:type "copy" ;
+    model:hasInput model:Kcross_scaled ;
+    model:hasOutput model:k .
+
+model:k a model:Tensor ;
+    model:name "k" ;
+    model:type "key" .
+
+model:op_copy_v a model:Operation ;
+    model:type "copy" ;
+    model:hasInput model:Vcross_bias ;
+    model:hasOutput model:v .
+
+model:v a model:Tensor ;
+    model:name "v" ;
+    model:type "value" .
+
+# Salidas del modelo
+model:k a model:Tensor ;
+    model:name "k" ;
+    model:type "output" .
+
+model:v a model:Tensor ;
+    model:name "v" ;
+    model:type "output" .

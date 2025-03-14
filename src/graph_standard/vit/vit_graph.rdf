@@ -1,1 +1,148 @@
-.
+@prefix model: <urn:uuid:9c5b6114-b321-4a17-b546-8a4cee36addb#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Metadatos del modelo
+model:Model a model:Model ;
+    model:hasMetadata [
+        model:modelName "{model_name}" ;
+        model:hiddenSize "{hidden_size}"^^xsd:integer ;
+        model:numHiddenLayers "{num_hidden_layers}"^^xsd:integer ;
+        model:numAttentionHeads "{num_attention_heads}"^^xsd:integer ;
+        model:numClasses "{num_classes}"^^xsd:integer ;
+        model:inputShape "{input_shape}" ;
+    ] .
+
+# Entradas del modelo
+model:input a model:Tensor ;
+    model:name "input" ;
+    model:type "input" ;
+    model:shape "{input_shape}" .
+
+# Capa de Preprocesamiento
+model:preprocessing a model:Layer ;
+    model:hasOperation model:op_preprocessing ;
+    model:hasOutput model:preprocessed_output .
+
+model:op_preprocessing a model:Operation ;
+    model:type "{operation_type}" ;
+    model:hasInput model:input ;
+    model:hasOutput model:preprocessed_output ;
+    model:hasParameter [
+        model:name "{parameter_name}" ;
+        model:ref "{parameter_ref}" ;
+    ] .
+
+model:preprocessed_output a model:Tensor ;
+    model:name "preprocessed_output" ;
+    model:type "embedding" .
+
+# Capa de Transformer
+model:layer_{layer_id} a model:Layer ;
+    model:hasInput model:input ;
+    model:hasOperation model:op_norm, model:op_self_attention, model:op_add1, model:op_feed_forward, model:op_add2 ;
+    model:hasOutput model:layer_output .
+
+model:op_norm a model:Operation ;
+    model:type "norm" ;
+    model:hasInput model:input ;
+    model:hasOutput model:norm_output ;
+    model:hasParameter [
+        model:name "weights" ;
+        model:ref "{norm_weights_ref}" ;
+    ], [
+        model:name "bias" ;
+        model:ref "{norm_bias_ref}" ;
+    ] .
+
+model:op_self_attention a model:Operation ;
+    model:type "self_attention" ;
+    model:hasInput model:norm_output ;
+    model:hasOutput model:attention_output ;
+    model:hasParameter [
+        model:name "qkv_weights" ;
+        model:ref "{qkv_weights_ref}" ;
+    ], [
+        model:name "qkv_bias" ;
+        model:ref "{qkv_bias_ref}" ;
+    ], [
+        model:name "proj_weights" ;
+        model:ref "{proj_weights_ref}" ;
+    ], [
+        model:name "proj_bias" ;
+        model:ref "{proj_bias_ref}" ;
+    ] .
+
+model:op_add1 a model:Operation ;
+    model:type "add" ;
+    model:hasInput model:attention_output, model:input ;
+    model:hasOutput model:skip_output .
+
+model:op_feed_forward a model:Operation ;
+    model:type "feed_forward" ;
+    model:hasInput model:skip_output ;
+    model:hasOutput model:ffn_output ;
+    model:hasParameter [
+        model:name "lin1_weights" ;
+        model:ref "{lin1_weights_ref}" ;
+    ], [
+        model:name "lin1_bias" ;
+        model:ref "{lin1_bias_ref}" ;
+    ], [
+        model:name "lin2_weights" ;
+        model:ref "{lin2_weights_ref}" ;
+    ], [
+        model:name "lin2_bias" ;
+        model:ref "{lin2_bias_ref}" ;
+    ] .
+
+model:op_add2 a model:Operation ;
+    model:type "add" ;
+    model:hasInput model:ffn_output, model:skip_output ;
+    model:hasOutput model:layer_output .
+
+model:layer_output a model:Tensor ;
+    model:name "layer_output" ;
+    model:type "embedding" .
+
+# Salida del modelo
+model:output a model:Output ;
+    model:hasOperation model:op_pooling, model:op_norm, model:op_linear, model:op_softmax ;
+    model:hasOutput model:probs .
+
+model:op_pooling a model:Operation ;
+    model:type "pooling" ;
+    model:hasInput model:final_layer_output ;
+    model:hasOutput model:pooled_output .
+
+model:op_norm a model:Operation ;
+    model:type "norm" ;
+    model:hasInput model:pooled_output ;
+    model:hasOutput model:norm_output ;
+    model:hasParameter [
+        model:name "weights" ;
+        model:ref "{norm_weights_ref}" ;
+    ], [
+        model:name "bias" ;
+        model:ref "{norm_bias_ref}" ;
+    ] .
+
+model:op_linear a model:Operation ;
+    model:type "linear" ;
+    model:hasInput model:norm_output ;
+    model:hasOutput model:logits ;
+    model:hasParameter [
+        model:name "weights" ;
+        model:ref "{head_weights_ref}" ;
+    ], [
+        model:name "bias" ;
+        model:ref "{head_bias_ref}" ;
+    ] .
+
+model:op_softmax a model:Operation ;
+    model:type "softmax" ;
+    model:hasInput model:logits ;
+    model:hasOutput model:probs .
+
+model:probs a model:Tensor ;
+    model:name "probs" ;
+    model:type "output" .

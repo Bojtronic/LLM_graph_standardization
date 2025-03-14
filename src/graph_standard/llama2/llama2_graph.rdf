@@ -1,1 +1,40 @@
-.
+@prefix model: <urn:uuid:3479d559-accc-4317-9816-31d35b1e02c2#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Metadatos del modelo
+model:Model a model:Model ;
+    model:hasMetadata [
+        model:modelName "{model_name}" ;
+        model:maxNodes "{max_nodes}"^^xsd:integer ;
+        model:nTokens "{n_tokens}"^^xsd:integer ;
+        model:nEmbdHead "{n_embd_head}"^^xsd:integer ;
+        model:nLayer "{n_layer}"^^xsd:integer ;
+    ] .
+
+# Capas del modelo
+model:layer_{layer_id} a model:Layer ;
+    model:hasInput model:input_{tensor_name} ;
+    model:hasOperation model:op_{operation_type} ;
+    model:hasOutput model:output_{output_tensor_name} .
+
+model:input_{tensor_name} a model:Tensor ;
+    model:name "{tensor_name}" ;
+    model:type "{tensor_type}" .
+
+model:op_{operation_type} a model:Operation ;
+    model:type "{operation_type}" ;
+    model:hasInput model:input_{input_tensor_name} ;
+    model:hasOutput model:output_{output_tensor_name} ;
+    model:hasParameter [
+        model:name "{parameter_name}" ;
+        model:value "{parameter_value}"^^xsd:float ; // Ajustar el tipo de dato según corresponda
+    ] .
+
+model:output_{output_tensor_name} a model:Tensor ;
+    model:name "{output_tensor_name}" ;
+    model:type "{tensor_type}" .
+
+# Salida del modelo
+model:final_output a model:Tensor ;
+    model:name "{final_output_name}" ;
+    model:type "model_output" .

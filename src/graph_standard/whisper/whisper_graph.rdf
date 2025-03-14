@@ -1,0 +1,105 @@
+@prefix model: <urn:uuid:26c6ea1d-62f2-4dd3-b2a0-2d53934f7d1b#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# Metadatos del modelo
+model:Model a model:Model ;
+    model:hasMetadata [
+        model:modelName "Whisper" ;
+        model:inputShape "{input_shape}" ;
+        model:outputShape "{output_shape}" ;
+        model:nAudioCtx "{n_audio_ctx}"^^xsd:integer ;
+        model:nAudioState "{n_audio_state}"^^xsd:integer ;
+        model:nAudioHead "{n_audio_head}"^^xsd:integer ;
+        model:nAudioLayer "{n_audio_layer}"^^xsd:integer ;
+        model:nTextState "{n_text_state}"^^xsd:integer ;
+        model:nTextHead "{n_text_head}"^^xsd:integer ;
+        model:nTextLayer "{n_text_layer}"^^xsd:integer ;
+        model:nTokens "{n_tokens}"^^xsd:integer ;
+    ] .
+
+# Entradas del modelo
+model:input a model:Tensor ;
+    model:name "input" ;
+    model:type "input" ;
+    model:shape "{input_shape}" .
+
+# Operaciones de Convolución
+model:op_conv1d a model:Operation ;
+    model:type "conv1d" ;
+    model:hasInput model:input ;
+    model:hasOutput model:conv_output ;
+    model:hasParameter [
+        model:name "weights" ;
+        model:ref "{conv_weights_ref}" ;
+    ], [
+        model:name "bias" ;
+        model:ref "{conv_bias_ref}" ;
+    ] .
+
+model:conv_output a model:Tensor ;
+    model:name "conv_output" ;
+    model:type "output" .
+
+# Operaciones de Encoder
+model:encoder_layer a model:Layer ;
+    model:hasInput model:inpL_encoder ;
+    model:hasOperation model:op_norm, model:op_self_attention ;
+    model:hasOutput model:attention_output .
+
+model:op_norm a model:Operation ;
+    model:type "norm" ;
+    model:hasInput model:inpL_encoder ;
+    model:hasOutput model:norm_output ;
+    model:hasParameter [
+        model:name "weights" ;
+        model:ref "{attn_ln_0_w}" ;
+    ], [
+        model:name "bias" ;
+        model:ref "{attn_ln_0_b}" ;
+    ] .
+
+model:op_self_attention a model:Operation ;
+    model:type "self_attention" ;
+    model:hasInput model:norm_output ;
+    model:hasOutput model:attention_output ;
+    model:hasParameter [
+        model:name "q_weights" ;
+        model:ref "{attn_q_w}" ;
+    ], [
+        model:name "q_bias" ;
+        model:ref "{attn_q_b}" ;
+    ], [
+        model:name "k_weights" ;
+        model:ref "{attn_k_w}" ;
+    ], [
+        model:name "v_weights" ;
+        model:ref "{attn_v_w}" ;
+    ], [
+        model:name "v_bias" ;
+        model:ref "{attn_v_b}" ;
+    ], [
+        model:name "scale" ;
+        model:value "{KQscale}"^^xsd:float ;
+    ] .
+
+# Operaciones de Cross-Attention
+model:cross_attention_layer a model:Layer ;
+    model:hasInput model:embd_enc ;
+    model:hasOperation model:op_mul_mat ;
+    model:hasOutput model:Kcross .
+
+model:op_mul_mat a model:Operation ;
+    model:type "mul_mat" ;
+    model:hasInput model:embd_enc ;
+    model:hasOutput model:Kcross ;
+    model:hasParameter [
+        model:name "weights" ;
+        model:ref "{cross_attn_k_w}" ;
+    ] .
+
+# Salida del modelo
+model:logits a model:Tensor ;
+    model:name "logits" ;
+    model:type "output" ;
+    model:shape "{output_shape}" .
+    

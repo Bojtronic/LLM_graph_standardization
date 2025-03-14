@@ -1,1 +1,116 @@
-.
+{
+    "graph": {
+      "metadata": {
+        "model_name": "{model_name}",
+        "input_shape": "{input_shape}",
+        "output_shape": "{output_shape}"
+      },
+      "inputs": {
+        "tensor": {
+          "name": "input",
+          "type": "input",
+          "shape": "{input_shape}"
+        }
+      },
+      "operations": {
+        "operation": [
+          {
+            "type": "conv1d",
+            "inputs": {
+              "input": {
+                "ref": "input"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "conv_output"
+              }
+            },
+            "parameters": {
+              "parameter": [
+                {
+                  "name": "weights",
+                  "ref": "{conv_weights_ref}"
+                },
+                {
+                  "name": "bias",
+                  "ref": "{conv_bias_ref}"
+                }
+              ]
+            }
+          },
+          {
+            "type": "activation",
+            "inputs": {
+              "input": {
+                "ref": "conv_output"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "activation_output"
+              }
+            },
+            "parameters": {
+              "parameter": {
+                "name": "type",
+                "value": "{activation_type}"
+              }
+            }
+          },
+          {
+            "type": "conv1d",
+            "inputs": {
+              "input": {
+                "ref": "activation_output"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "final_conv_output"
+              }
+            },
+            "parameters": {
+              "parameter": [
+                {
+                  "name": "weights",
+                  "ref": "{final_conv_weights_ref}"
+                },
+                {
+                  "name": "bias",
+                  "ref": "{final_conv_bias_ref}"
+                }
+              ]
+            }
+          },
+          {
+            "type": "activation",
+            "inputs": {
+              "input": {
+                "ref": "final_conv_output"
+              }
+            },
+            "outputs": {
+              "output": {
+                "name": "final_output"
+              }
+            },
+            "parameters": {
+              "parameter": {
+                "name": "type",
+                "value": "{activation_type}"
+              }
+            }
+          }
+        ]
+      },
+      "outputs": {
+        "tensor": {
+          "name": "final_output",
+          "type": "output",
+          "shape": "{output_shape}"
+        }
+      }
+    }
+  }
+  

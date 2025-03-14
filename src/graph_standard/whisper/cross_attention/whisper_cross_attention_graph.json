@@ -1,1 +1,157 @@
-.
+{
+    "graph": {
+      "metadata": {
+        "model_name": "{model_name}",
+        "n_audio_ctx": "{n_audio_ctx}",
+        "n_audio_state": "{n_audio_state}",
+        "n_audio_head": "{n_audio_head}",
+        "n_text_layer": "{n_text_layer}"
+      },
+      "inputs": {
+        "tensor": {
+          "name": "embd_enc",
+          "type": "input",
+          "shape": "{n_state}x{n_audio_ctx}"
+        }
+      },
+      "operations": {
+        "layer": {
+          "id": "{layer_id}",
+          "inputs": {
+            "tensor": {
+              "name": "embd_enc",
+              "type": "embedding"
+            }
+          },
+          "operations": [
+            {
+              "type": "mul_mat",
+              "inputs": [
+                {
+                  "ref": "embd_enc"
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "Kcross"
+                }
+              ],
+              "parameters": [
+                {
+                  "name": "weights",
+                  "ref": "{cross_attn_k_w}"
+                }
+              ]
+            },
+            {
+              "type": "scale",
+              "inputs": [
+                {
+                  "ref": "Kcross"
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "Kcross_scaled"
+                }
+              ],
+              "parameters": [
+                {
+                  "name": "scale",
+                  "value": "{Kscale}"
+                }
+              ]
+            },
+            {
+              "type": "mul_mat",
+              "inputs": [
+                {
+                  "ref": "embd_enc"
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "Vcross"
+                }
+              ],
+              "parameters": [
+                {
+                  "name": "weights",
+                  "ref": "{cross_attn_v_w}"
+                }
+              ]
+            },
+            {
+              "type": "add",
+              "inputs": [
+                {
+                  "ref": "Vcross"
+                },
+                {
+                  "ref": "{cross_attn_v_b}"
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "Vcross_bias"
+                }
+              ]
+            },
+            {
+              "type": "copy",
+              "inputs": [
+                {
+                  "ref": "Kcross_scaled"
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "k"
+                }
+              ]
+            },
+            {
+              "type": "copy",
+              "inputs": [
+                {
+                  "ref": "Vcross_bias"
+                }
+              ],
+              "outputs": [
+                {
+                  "name": "v"
+                }
+              ]
+            }
+          ],
+          "outputs": [
+            {
+              "tensor": {
+                "name": "k",
+                "type": "key"
+              }
+            },
+            {
+              "tensor": {
+                "name": "v",
+                "type": "value"
+              }
+            }
+          ]
+        }
+      },
+      "outputs": {
+        "tensors": [
+          {
+            "name": "k",
+            "type": "output"
+          },
+          {
+            "name": "v",
+            "type": "output"
+          }
+        ]
+      }
+    }
+  }
+  

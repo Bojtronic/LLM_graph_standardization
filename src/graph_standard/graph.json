@@ -1,1 +1,242 @@
-.
+{
+    "metadata": {
+      "model_name": "{model_name}",
+      "max_nodes": "{max_nodes}",
+      "n_tokens": "{n_tokens}",
+      "n_embd_head": "{n_embd_head}",
+      "n_layer": "{n_layer}",
+      "model_type": "{model_type}" 
+    },
+    "layers": [
+      {
+        "id": "layer_1",
+        "inputs": [
+          {
+            "id": "input_1",
+            "name": "input_tensor",
+            "type": "float32"
+          }
+        ],
+        "operations": [
+          {
+            "id": "op_1",
+            "type": "multi_head_attention",
+            "inputs": [
+              {
+                "ref": "input_1"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output_1",
+                "name": "attention_output"
+              }
+            ],
+            "parameters": [
+              {
+                "name": "n_heads",
+                "value": 8
+              },
+              {
+                "name": "is_causal",
+                "value": true
+              }
+            ]
+          },
+          {
+            "id": "op_2",
+            "type": "feed_forward",
+            "inputs": [
+              {
+                "ref": "output_1"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output_2",
+                "name": "ffn_output"
+              }
+            ],
+            "parameters": [
+              {
+                "name": "activation",
+                "value": "gelu"
+              }
+            ]
+          },
+          {
+            "id": "op_3",
+            "type": "layer_norm",
+            "inputs": [
+              {
+                "ref": "output_2"
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output_3",
+                "name": "norm_output"
+              }
+            ],
+            "parameters": [
+              {
+                "name": "use_rmsnorm",
+                "value": "{model_type == 'LLAMA 2' ? true : false}"
+              },
+              {
+                "name": "eps",
+                "value": 1e-5
+              }
+            ]
+          }
+        ],
+        "outputs": [
+          {
+            "id": "output_3",
+            "name": "layer_output",
+            "type": "float32"
+          }
+        ]
+      },
+      {
+        "id": "layer_2",
+        "condition": {
+          "if": {
+            "model_type": "ViT",
+            "inputs": [
+              {
+                "id": "input_2",
+                "name": "patch_embeddings",
+                "type": "float32"
+              }
+            ],
+            "operations": [
+              {
+                "id": "op_4",
+                "type": "class_token",
+                "inputs": [
+                  {
+                    "ref": "input_2"
+                  }
+                ],
+                "outputs": [
+                  {
+                    "id": "output_4",
+                    "name": "class_token_output"
+                  }
+                ]
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output_4",
+                "name": "class_token",
+                "type": "float32"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "layer_3",
+        "condition": {
+          "if": {
+            "model_type": "Whisper",
+            "inputs": [
+              {
+                "id": "input_3",
+                "name": "audio_embeddings",
+                "type": "float32"
+              },
+              {
+                "id": "input_4",
+                "name": "text_embeddings",
+                "type": "float32"
+              }
+            ],
+            "operations": [
+              {
+                "id": "op_5",
+                "type": "cross_attention",
+                "inputs": [
+                  {
+                    "ref": "input_3"
+                  },
+                  {
+                    "ref": "input_4"
+                  }
+                ],
+                "outputs": [
+                  {
+                    "id": "output_5",
+                    "name": "cross_attention_output"
+                  }
+                ]
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output_5",
+                "name": "cross_attention_output",
+                "type": "float32"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "layer_4",
+        "condition": {
+          "if": {
+            "model_type": "LLAMA 2",
+            "inputs": [
+              {
+                "id": "input_5",
+                "name": "llama_input",
+                "type": "float32"
+              }
+            ],
+            "operations": [
+              {
+                "id": "op_6",
+                "type": "layer_norm",
+                "inputs": [
+                  {
+                    "ref": "input_5"
+                  }
+                ],
+                "outputs": [
+                  {
+                    "id": "output_6",
+                    "name": "rmsnorm_output"
+                  }
+                ],
+                "parameters": [
+                  {
+                    "name": "use_rmsnorm",
+                    "value": true
+                  },
+                  {
+                    "name": "eps",
+                    "value": 1e-5
+                  }
+                ]
+              }
+            ],
+            "outputs": [
+              {
+                "id": "output_6",
+                "name": "llama_output",
+                "type": "float32"
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "output": {
+      "id": "final_output",
+      "name": "model_output",
+      "type": "float32"
+    }
+  }

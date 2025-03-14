@@ -7,12 +7,12 @@
         <n_tokens>{n_tokens}</n_tokens>
         <n_embd_head>{n_embd_head}</n_embd_head>
         <n_layer>{n_layer}</n_layer>
-        <model_type>{model_type}</model_type> 
+        <model_type>{model_type}</model_type> <!-- Puede ser "LLAMA 2", "ViT" o "Whisper" -->
     </metadata>
 
     <!-- Capas del modelo -->
     <layers>
-        <!-- Capa genérica -->
+        <!-- Capa genérica (común a todos los modelos) -->
         <layer id="layer_1">
             <inputs>
                 <tensor id="input_1" name="input_tensor" type="float32"/>
@@ -29,21 +29,12 @@
                     </outputs>
                     <parameters>
                         <parameter name="n_heads" value="8"/>
-                        <parameter name="use_causal_mask" value="true"/>
-                        <parameter name="attention_type" value="autoattencion"/> <!-- Ej: autoattencion, cross_attention, MLA -->
+                        <parameter name="is_causal" value="true"/> <!-- Usar is_causal en lugar de use_causal_mask -->
                     </parameters>
                 </operation>
 
-                <!-- Feed-Forward con condicional para MoE -->
+                <!-- Feed-Forward -->
                 <operation id="op_2" type="feed_forward">
-                    <condition>
-                        <if model_type="DeepSeek">
-                            <parameter name="use_moe" value="true"/>
-                        </if>
-                        <else>
-                            <parameter name="use_moe" value="false"/>
-                        </else>
-                    </condition>
                     <inputs>
                         <input ref="output_1"/>
                     </inputs>
@@ -51,26 +42,23 @@
                         <output id="output_2" name="ffn_output"/>
                     </outputs>
                     <parameters>
-                        <parameter name="activation" value="GELU"/>
+                        <parameter name="activation" value="gelu"/> <!-- Asegurar que el valor coincida con los nombres de las funciones -->
                     </parameters>
                 </operation>
 
-                <!-- Normalización con condicional para tipo de normalización -->
-                <operation id="op_3" type="normalization">
-                    <condition>
-                        <if model_type="LLAMA 2">
-                            <parameter name="norm_type" value="RMSNorm"/>
-                        </if>
-                        <else>
-                            <parameter name="norm_type" value="LayerNorm"/>
-                        </else>
-                    </condition>
+                <!-- Normalización -->
+                <operation id="op_3" type="layer_norm">
                     <inputs>
                         <input ref="output_2"/>
                     </inputs>
                     <outputs>
                         <output id="output_3" name="norm_output"/>
                     </outputs>
+                    <parameters>
+                        <!-- Usar RMSNorm si el modelo es LLAMA 2, de lo contrario usar LayerNorm -->
+                        <parameter name="use_rmsnorm" value="{model_type == 'LLAMA 2' ? 'true' : 'false'}"/>
+                        <parameter name="eps" value="1e-5"/> <!-- Valor de épsilon -->
+                    </parameters>
                 </operation>
             </operations>
 
@@ -124,6 +112,34 @@
                     </operations>
                     <outputs>
                         <tensor id="output_5" name="cross_attention_output" type="float32"/>
+                    </outputs>
+                </if>
+            </condition>
+        </layer>
+
+        <!-- Capa específica para LLAMA 2 (RMSNorm) -->
+        <layer id="layer_4">
+            <condition>
+                <if model_type="LLAMA 2">
+                    <inputs>
+                        <tensor id="input_5" name="llama_input" type="float32"/>
+                    </inputs>
+                    <operations>
+                        <operation id="op_6" type="layer_norm">
+                            <inputs>
+                                <input ref="input_5"/>
+                            </inputs>
+                            <outputs>
+                                <output id="output_6" name="rmsnorm_output"/>
+                            </outputs>
+                            <parameters>
+                                <parameter name="use_rmsnorm" value="true"/> <!-- Usar RMSNorm -->
+                                <parameter name="eps" value="1e-5"/> <!-- Valor de épsilon -->
+                            </parameters>
+                        </operation>
+                    </operations>
+                    <outputs>
+                        <tensor id="output_6" name="llama_output" type="float32"/>
                     </outputs>
                 </if>
             </condition>
