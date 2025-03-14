@@ -11,7 +11,7 @@
 #include <vector>
 #include <iostream>
 #include <sstream>
-#include <tinyxml2.h> // Librería para parsear XML
+#include <tinyxml2.h> 
 
 using namespace tinyxml2;
 
