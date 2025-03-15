@@ -231,13 +231,6 @@ ggml_tensor * cross_attention(ggml_context * ctx, ggml_tensor * Q, ggml_tensor *
     return multi_head_attention(ctx, Q, K, V, false);
 }
 
-
-ggml_tensor * class_token(ggml_context * ctx, ggml_tensor * input) {
-    ggml_tensor * cls_token = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, input->ne[0]);
-    ggml_set_zero(cls_token);
-    return ggml_concat(ctx, cls_token, input, 0);
-}
-
 // Módulo de Token de Clase (ViT)
 // Parámetros:
 // - ctx: Contexto de GGML.

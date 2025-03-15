@@ -203,6 +203,8 @@ struct gguf_tensor_info {
     uint64_t offset;      // offset from start of `data`, must be a multiple of `ALIGNMENT`
 };
 
+
+///////////////////////////////////////////////////////////////////////////////////
 struct gguf_context {
     uint32_t version = GGUF_VERSION;
 
@@ -215,6 +217,8 @@ struct gguf_context {
 
     void * data = nullptr;
 };
+///////////////////////////////////////////////////////////////////////////////////
+
 
 struct gguf_reader {
     FILE * file;
