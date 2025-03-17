@@ -144,13 +144,14 @@ void gguf_print_context(const struct gguf_context *ctx, const char *fname) {
 }
 
 
-
 // Función que obtiene la configuración de un archivo GGUF
-bool get_gguf_config(const char *fname) {
+int main() {
+    const char *fname = "llama-2-7b.Q2_K.gguf"; 
+
     // Verifica si el nombre del archivo es válido
     if (!fname) {
-        fprintf(stderr, "%s: Nombre de archivo inválido (NULL)\n", __func__);
-        return false;
+        std::cerr << "Nombre de archivo inválido (NULL)\n";
+        return 1;  // Código de error
     }
 
     struct ggml_context *ctx = NULL;
@@ -162,17 +163,15 @@ bool get_gguf_config(const char *fname) {
     // Intenta cargar el archivo GGUF
     struct gguf_context *ctx_gguf = gguf_init_from_file(fname, params);
     if (!ctx_gguf) {
-        fprintf(stderr, "%s: No se pudo cargar el archivo GGUF '%s'\n", __func__, fname);
-        return false;
+        std::cerr << "No se pudo cargar el archivo GGUF '" << fname << "'\n";
+        return 1;  // Código de error
     }
 
     // Imprimir el contexto
     gguf_print_context(ctx_gguf, fname);
 
-    
-
     // Liberar el contexto GGUF cuando ya no sea necesario
     gguf_free(ctx_gguf);
 
-    return true;
+    return 0;  // Éxito
 }
