@@ -922,6 +922,28 @@ size_t gguf_get_tensor_size(const struct gguf_context * ctx, int64_t tensor_id) 
     return ggml_nbytes(&ctx->info[tensor_id].t);
 }
 
+//////////////////////////////////////////////////////////////////////////////
+
+// Obtiene el número de dimensiones activas 
+int32_t gguf_get_tensor_n_dims(const struct gguf_context * ctx, int64_t tensor_id) {
+    GGML_ASSERT(tensor_id >= 0 && tensor_id < gguf_get_n_tensors(ctx));
+    const struct ggml_tensor& tensor = ctx->info[tensor_id].t;
+    
+    int32_t n_dims = 0;
+    for (int j = 0; j < GGML_MAX_DIMS; ++j) {
+        if (tensor.ne[j] > 1) n_dims++;
+    }
+    return n_dims > 0 ? n_dims : 1; // Mínimo 1 dimensión
+}
+
+// Obtiene el array de dimensiones 
+const int64_t * gguf_get_tensor_dims(const struct gguf_context * ctx, int64_t tensor_id) {
+    GGML_ASSERT(tensor_id >= 0 && tensor_id < gguf_get_n_tensors(ctx));
+    return ctx->info[tensor_id].t.ne;
+}
+
+//////////////////////////////////////////////////////////////////////////////
+
 int64_t gguf_remove_key(struct gguf_context * ctx, const char * key) {
     const int64_t key_id = gguf_find_key(ctx, key);
     if (key_id >= 0) {

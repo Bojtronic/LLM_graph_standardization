@@ -125,6 +125,10 @@ extern "C" {
     GGML_API enum ggml_type gguf_get_tensor_type  (const struct gguf_context * ctx, int64_t tensor_id);
     GGML_API size_t         gguf_get_tensor_size  (const struct gguf_context * ctx, int64_t tensor_id);
 
+    // Nuevas funciones para dimensiones de tensores
+    GGML_API int32_t        gguf_get_tensor_n_dims(const struct gguf_context * ctx, int64_t tensor_id); // returns number of active dimensions
+    GGML_API const int64_t *gguf_get_tensor_dims  (const struct gguf_context * ctx, int64_t tensor_id); // returns array of dimensions (GGML_MAX_DIMS elements)
+
     // removes key if it exists, returns id that the key had prior to removal (-1 if it didn't exist)
     GGML_API int64_t gguf_remove_key(struct gguf_context * ctx, const char * key);
 

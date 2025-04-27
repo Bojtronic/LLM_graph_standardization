@@ -301,10 +301,20 @@ void gguf_print_context(const struct gguf_context *ctx, const char *fname, const
         size_t size = gguf_get_tensor_size(ctx, i);
         size_t offset = gguf_get_tensor_offset(ctx, i);
 
+        const int32_t n_dims = gguf_get_tensor_n_dims(ctx, i);
+        const int64_t *dims = gguf_get_tensor_dims(ctx, i);
+
         outfile << "Tensor Name: " << name << "\n";
         outfile << "Tensor Type: " << ggml_type_name(type) << "\n";
         outfile << "Tensor Size: " << size << " bytes\n";
         outfile << "Tensor Offset: " << offset << "\n";
+
+        outfile << "Number of dimensions: " << n_dims << "\n";
+        outfile << "Dimensions: ";
+        for (int32_t j = 0; j < n_dims; ++j) {
+            outfile << dims[j] << " ";
+        }
+        outfile << "\n";
 
         read_tensor_data(fname, outfile, offset, size, type);
 
