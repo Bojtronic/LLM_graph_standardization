@@ -80,16 +80,31 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname) {
                     case GGUF_TYPE_FLOAT64:
                         md.array.data = read_array_data<double>(ctx, i, md.array.size);
                         break;
-                    case GGUF_TYPE_STRING: {
-                        const char **str_array = (const char **)gguf_get_arr_data(ctx, i);
+                    case GGUF_TYPE_STRING: 
+                    
+                    {
+                        // Marcar que hay un array de strings no procesado (analizar si se necesita o si se puede omitir)
+                        md.array.data = std::vector<std::string>(); // Vacío
+
+                        /*
+                        // Esto accede a datos internos de GGUF y puede ser inseguro.
+                        const auto &item = ctx->kv[i];
                         std::vector<std::string> strings;
-                        strings.reserve(md.array.size);
-                        for (size_t j = 0; j < md.array.size; j++) {
-                            strings.emplace_back(str_array[j] ? str_array[j] : "");
+                        strings.reserve(item.size);
+                        
+                        // Se asume que los strings están almacenados como punteros consecutivos
+                        const char **str_ptrs = reinterpret_cast<const char**>(item.data.data());
+                        for (size_t j = 0; j < item.size; ++j) {
+                            strings.emplace_back(str_ptrs[j] ? str_ptrs[j] : "");
                         }
                         md.array.data = strings;
+                        */
                         break;
                     }
+                    
+                        
+                        break;
+                    
                     default:
                         break;
                 }
@@ -319,6 +334,72 @@ void print_graph_data(const GraphData& graph_data, const char *output_filename) 
         for (const auto &dim : tensor.dims) {
             outfile << dim << " ";
         }
+
+        outfile << "\n";
+
+        // Mostrar los primeros elementos del tensor según su tipo
+        outfile << "Datos (primeros elementos): ";
+        
+        const size_t max_elements = 5; // Mostrar solo los primeros 5 elementos
+        
+        switch (tensor.type) {
+            case GGML_TYPE_F32:
+                if (const auto* data = std::get_if<std::vector<float>>(&tensor.data)) {
+                    for (size_t i = 0; i < std::min(data->size(), max_elements); ++i) {
+                        outfile << (*data)[i] << " ";
+                    }
+                }
+                break;
+                
+            case GGML_TYPE_I32:
+                if (const auto* data = std::get_if<std::vector<int32_t>>(&tensor.data)) {
+                    for (size_t i = 0; i < std::min(data->size(), max_elements); ++i) {
+                        outfile << (*data)[i] << " ";
+                    }
+                }
+                break;
+                
+            case GGML_TYPE_F16:
+                if (const auto* data = std::get_if<std::vector<uint16_t>>(&tensor.data)) {
+                    for (size_t i = 0; i < std::min(data->size(), max_elements); ++i) {
+                        outfile << (*data)[i] << " ";
+                    }
+                }
+                break;
+                
+            case GGML_TYPE_I8:
+                if (const auto* data = std::get_if<std::vector<int8_t>>(&tensor.data)) {
+                    for (size_t i = 0; i < std::min(data->size(), max_elements); ++i) {
+                        outfile << static_cast<int>((*data)[i]) << " "; // Mostrar como número
+                    }
+                }
+                break;
+                
+            // Tipos cuantizados
+            case GGML_TYPE_Q4_0:
+            case GGML_TYPE_Q4_1:
+            case GGML_TYPE_Q8_0:
+            case GGML_TYPE_Q2_K:
+            case GGML_TYPE_Q3_K:
+                if (const auto* data = std::get_if<std::vector<uint8_t>>(&tensor.data)) {
+                    outfile << "[Datos cuantizados - " << data->size() << " bytes]";
+                }
+                break;
+                
+            default:
+                if (const auto* data = std::get_if<std::vector<uint8_t>>(&tensor.data)) {
+                    outfile << "[Datos binarios - " << data->size() << " bytes]";
+                }
+                break;
+        }
+
+        // Indicar si hay más elementos
+        if (std::visit([](const auto& v) { return v.size(); }, tensor.data) > max_elements) {
+            outfile << "... [total: " 
+                << std::visit([](const auto& v) { return v.size(); }, tensor.data) 
+                << " elementos]";
+        }
+        
         outfile << "\n --------------------------------------------------------------- \n";
         outfile << "\n --------------------------------------------------------------- \n";
         outfile << "\n --------------------------------------------------------------- \n";
@@ -327,6 +408,8 @@ void print_graph_data(const GraphData& graph_data, const char *output_filename) 
 
     // Cerrar el archivo de salida
     outfile.close();
+    std::cout << "La información de GraphData se ha escrito en el archivo: " << output_filename << "\n";
+
 }
 
 
