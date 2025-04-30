@@ -1,6 +1,10 @@
 # Nombre del ejecutable
 set(TARGET gguf_reader)
 
+# Requerir C++17
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 # Archivo fuente
 set(SOURCES main.cpp)
 
@@ -11,10 +15,13 @@ add_executable(${TARGET} ${SOURCES})
 target_link_libraries(${TARGET} PRIVATE ggml)
 
 # Opciones de compilación
-target_compile_options(${TARGET} PRIVATE -std=c++11 -Wall -Wextra -O2)
+target_compile_options(${TARGET} PRIVATE -Wall -Wextra -O2)
 
 # Incluir directorios de cabecera
-target_include_directories(${TARGET} PRIVATE ../../include)
+target_include_directories(${TARGET} PRIVATE 
+    ../../include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../../new_features
+)
 
 # Para GPU offloading (opcional)
 if (GGML_CUDA)

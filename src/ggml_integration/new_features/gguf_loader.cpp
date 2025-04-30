@@ -3,14 +3,29 @@
 #include <vector>
 #include <string>
 #include <fstream>
+#include <string.h>
+#include "graph_data_structs.h"
 #include "gguf.h"  
 
-void read_tensor_data(const char *fname, std::ofstream &outfile, size_t offset, size_t size, enum ggml_type type) {
+
+/**
+ * @brief Lee los datos de un tensor desde un archivo GGUF y los almacena en una estructura GGUFTensor
+ * @param fname Nombre del archivo GGUF
+ * @param offset Desplazamiento en el archivo donde comienzan los datos del tensor
+ * @param size Tamaño del tensor en bytes
+ * @param type Tipo de datos del tensor
+ * @return Estructura GGUFTensor con los datos leídos
+ */
+GGUFTensor read_tensor_data(const char *fname, size_t offset, size_t size, enum ggml_type type) {
+    GGUFTensor tensor;
+    tensor.type = type;
+    tensor.size = size;
+
     // Leer los datos del tensor desde el archivo
     std::ifstream file(fname, std::ios::binary);
     if (!file) {
         std::cerr << "No se pudo abrir el archivo: " << fname << "\n";
-        return;
+        return tensor;
     }
 
     file.seekg(offset, std::ios::beg);
@@ -19,103 +34,224 @@ void read_tensor_data(const char *fname, std::ofstream &outfile, size_t offset, 
 
     if (!file) {
         std::cerr << "Error al leer los datos del tensor.\n";
-        return;
+        return tensor;
     }
 
-    // Escribir los datos del tensor según su tipo
-    outfile << "Tensor data: ";
-    switch (type) {
-        // Tipos no cuantizados
-        case GGML_TYPE_F32:
-            for (size_t j = 0; j < size / sizeof(float); ++j) {
-                outfile << reinterpret_cast<float*>(buffer.data())[j] << " ";
+    // Almacenar los datos según el tipo del tensor
+    if (ggml_is_quantized(type)) {
+        // Para tipos cuantizados, usar vector<uint8_t>
+        tensor.data = buffer;
+    } else {
+        // Para tipos no cuantizados, usar el tipo específico
+        switch (type) {
+            case GGML_TYPE_F32: {
+                std::vector<float> float_data(size / sizeof(float));
+                memcpy(float_data.data(), buffer.data(), size);
+                tensor.data = float_data;
+                break;
             }
-            break;
-        case GGML_TYPE_F16:
-            for (size_t j = 0; j < size / sizeof(uint16_t); ++j) {
-                outfile << reinterpret_cast<uint16_t*>(buffer.data())[j] << " ";
+            case GGML_TYPE_F16: {
+                std::vector<uint16_t> f16_data(size / sizeof(uint16_t));
+                memcpy(f16_data.data(), buffer.data(), size);
+                tensor.data = f16_data;
+                break;
             }
-            break;
-        case GGML_TYPE_I32:
-            for (size_t j = 0; j < size / sizeof(int32_t); ++j) {
-                outfile << reinterpret_cast<int32_t*>(buffer.data())[j] << " ";
+            case GGML_TYPE_I32: {
+                std::vector<int32_t> i32_data(size / sizeof(int32_t));
+                memcpy(i32_data.data(), buffer.data(), size);
+                tensor.data = i32_data;
+                break;
             }
-            break;
-        case GGML_TYPE_I16:
-            for (size_t j = 0; j < size / sizeof(int16_t); ++j) {
-                outfile << reinterpret_cast<int16_t*>(buffer.data())[j] << " ";
+            case GGML_TYPE_I16: {
+                std::vector<int16_t> i16_data(size / sizeof(int16_t));
+                memcpy(i16_data.data(), buffer.data(), size);
+                tensor.data = i16_data;
+                break;
             }
-            break;
-        case GGML_TYPE_I8:
-            for (size_t j = 0; j < size / sizeof(int8_t); ++j) {
-                outfile << static_cast<int>(reinterpret_cast<int8_t*>(buffer.data())[j]) << " ";
+            case GGML_TYPE_I8: {
+                std::vector<int8_t> i8_data(size / sizeof(int8_t));
+                memcpy(i8_data.data(), buffer.data(), size);
+                tensor.data = i8_data;
+                break;
             }
-            break;
-
-        // Tipos cuantizados tradicionales
-        case GGML_TYPE_Q4_0: {
-            outfile << "[Datos cuantizados (" << ggml_type_name(type) << ") - no se pueden imprimir directamente]";
-            break;
+            default: {
+                // Para tipos no soportados, guardar como datos crudos
+                tensor.data = buffer;
+                break;
+            }
         }
-        
-        case GGML_TYPE_Q4_1: {
-            outfile << "[Datos cuantizados (" << ggml_type_name(type) << ") - no se pueden imprimir directamente]";
-            break;
-        }
-
-        case GGML_TYPE_Q8_0: {
-            outfile << "[Datos cuantizados (" << ggml_type_name(type) << ") - no se pueden imprimir directamente]";
-            break;
-        }
-
-        // Otros tipos cuantizados
-        case GGML_TYPE_Q5_0:
-        case GGML_TYPE_Q5_1:
-        case GGML_TYPE_Q8_1:
-            outfile << "[Datos cuantizados (" << ggml_type_name(type) << ") - no se pueden imprimir directamente]";
-            break;
-
-        case GGML_TYPE_Q2_K: {
-            outfile << "[Datos cuantizados (" << ggml_type_name(type) << ") - no se pueden imprimir directamente]";
-            break;
-        }
-
-        case GGML_TYPE_Q3_K: {
-            outfile << "[Datos cuantizados (" << ggml_type_name(type) << ") - no se pueden imprimir directamente]";
-            break;
-        }
-
-        case GGML_TYPE_Q4_K:
-        case GGML_TYPE_Q5_K:
-        case GGML_TYPE_Q6_K:
-        case GGML_TYPE_Q8_K:
-        case GGML_TYPE_IQ2_XXS:
-        case GGML_TYPE_IQ2_XS:
-        case GGML_TYPE_IQ3_XXS:
-        case GGML_TYPE_IQ1_S:
-        case GGML_TYPE_IQ4_NL:
-        case GGML_TYPE_IQ3_S:
-        case GGML_TYPE_IQ2_S:
-        case GGML_TYPE_IQ4_XS:
-        case GGML_TYPE_IQ1_M:
-        case GGML_TYPE_TQ1_0:
-        case GGML_TYPE_TQ2_0:
-            outfile << "[Datos cuantizados (" << ggml_type_name(type) << ") - no se pueden imprimir directamente]";
-            break;
-
-        default:
-            outfile << "Unsupported tensor type for printing.";
-            break;
     }
-    outfile << "\n";
+
+    return tensor;
 }
 
-void gguf_print_context(const struct gguf_context *ctx, const char *fname, const char *output_filename) {
+/**
+ * @brief Parsea un contexto GGUF y almacena todos los datos en una estructura GraphData
+ * @param ctx Contexto GGUF cargado
+ * @param fname Nombre del archivo GGUF (para leer datos de tensores)
+ * @return Estructura GraphData con todos los datos cargados
+ */
+GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname) {
+    GraphData graph_data;
+    
     if (!ctx) {
         std::cerr << "Contexto GGUF es NULL." << std::endl;
-        return;
+        return graph_data;
     }
 
+    // Llenar el encabezado
+    graph_data.header.n_tensors = gguf_get_n_tensors(ctx);
+    graph_data.header.n_kv = gguf_get_n_kv(ctx);
+
+    // Llenar metadatos
+    for (int64_t i = 0; i < gguf_get_n_kv(ctx); ++i) {
+        GGUFMetadata md;
+        md.key = gguf_get_key(ctx, i);
+        md.type = gguf_get_kv_type(ctx, i);
+
+        switch (md.type) {
+            case GGUF_TYPE_UINT8: md.value.u8 = gguf_get_val_u8(ctx, i); break;
+            case GGUF_TYPE_INT8: md.value.i8 = gguf_get_val_i8(ctx, i); break;
+            case GGUF_TYPE_UINT16: md.value.u16 = gguf_get_val_u16(ctx, i); break;
+            case GGUF_TYPE_INT16: md.value.i16 = gguf_get_val_i16(ctx, i); break;
+            case GGUF_TYPE_UINT32: md.value.u32 = gguf_get_val_u32(ctx, i); break;
+            case GGUF_TYPE_INT32: md.value.i32 = gguf_get_val_i32(ctx, i); break;
+            case GGUF_TYPE_FLOAT32: md.value.f32 = gguf_get_val_f32(ctx, i); break;
+            case GGUF_TYPE_BOOL: md.value.b = gguf_get_val_bool(ctx, i); break;
+            case GGUF_TYPE_STRING: md.str = gguf_get_val_str(ctx, i); break;
+            case GGUF_TYPE_UINT64: md.value.u64 = gguf_get_val_u64(ctx, i); break;
+            case GGUF_TYPE_INT64: md.value.i64 = gguf_get_val_i64(ctx, i); break;
+            case GGUF_TYPE_FLOAT64: md.value.f64 = gguf_get_val_f64(ctx, i); break;
+            case GGUF_TYPE_ARRAY:
+                md.array.type = gguf_get_arr_type(ctx, i);
+                md.array.size = gguf_get_arr_n(ctx, i);
+                
+                switch (md.array.type) {
+                    case GGUF_TYPE_UINT8:
+                        md.array.data = read_array_data<uint8_t>(ctx, i, md.array.size);
+                        break;
+                    case GGUF_TYPE_INT8:
+                        md.array.data = read_array_data<int8_t>(ctx, i, md.array.size);
+                        break;
+                    case GGUF_TYPE_UINT16:
+                        md.array.data = read_array_data<uint16_t>(ctx, i, md.array.size);
+                        break;
+                    case GGUF_TYPE_INT16:
+                        md.array.data = read_array_data<int16_t>(ctx, i, md.array.size);
+                        break;
+                    case GGUF_TYPE_UINT32:
+                        md.array.data = read_array_data<uint32_t>(ctx, i, md.array.size);
+                        break;
+                    case GGUF_TYPE_INT32:
+                        md.array.data = read_array_data<int32_t>(ctx, i, md.array.size);
+                        break;
+                    case GGUF_TYPE_FLOAT32:
+                        md.array.data = read_array_data<float>(ctx, i, md.array.size);
+                        break;
+                    case GGUF_TYPE_UINT64:
+                        md.array.data = read_array_data<uint64_t>(ctx, i, md.array.size);
+                        break;
+                    case GGUF_TYPE_INT64:
+                        md.array.data = read_array_data<int64_t>(ctx, i, md.array.size);
+                        break;
+                    case GGUF_TYPE_FLOAT64:
+                        md.array.data = read_array_data<double>(ctx, i, md.array.size);
+                        break;
+                    case GGUF_TYPE_STRING: {
+                        const char **str_array = (const char **)gguf_get_arr_data(ctx, i);
+                        std::vector<std::string> strings;
+                        strings.reserve(md.array.size);
+                        for (size_t j = 0; j < md.array.size; j++) {
+                            strings.emplace_back(str_array[j] ? str_array[j] : "");
+                        }
+                        md.array.data = strings;
+                        break;
+                    }
+                    default:
+                        break;
+                }
+                break;
+            default: break;
+        }
+
+        graph_data.metadata.push_back(md);
+    }
+
+    // Llenar información de tensores
+    for (int64_t i = 0; i < gguf_get_n_tensors(ctx); ++i) {
+        GGUFTensor tensor;
+        tensor.name = gguf_get_tensor_name(ctx, i);
+        tensor.type = gguf_get_tensor_type(ctx, i);
+        tensor.size = gguf_get_tensor_size(ctx, i);
+
+        // Obtener dimensiones
+        const int32_t n_dims = gguf_get_tensor_n_dims(ctx, i);
+        const int64_t *dims = gguf_get_tensor_dims(ctx, i);
+        tensor.dims.assign(dims, dims + n_dims);
+        tensor.n_dims = n_dims;
+
+        // Leer datos del tensor
+        std::ifstream file(fname, std::ios::binary);
+        if (file) {
+            size_t offset = gguf_get_tensor_offset(ctx, i);
+            file.seekg(offset, std::ios::beg);
+
+            // Asignar el tipo de almacenamiento correcto
+            if (!ggml_is_quantized(tensor.type)) {
+                switch (tensor.type) {
+                    case GGML_TYPE_F32: {
+                        std::vector<float> float_data(tensor.size / sizeof(float));
+                        file.read(reinterpret_cast<char*>(float_data.data()), tensor.size);
+                        tensor.data = float_data;
+                        break;
+                    }
+                    case GGML_TYPE_F16: {
+                        std::vector<uint16_t> f16_data(tensor.size / sizeof(uint16_t));
+                        file.read(reinterpret_cast<char*>(f16_data.data()), tensor.size);
+                        tensor.data = f16_data;
+                        break;
+                    }
+                    case GGML_TYPE_I32: {
+                        std::vector<int32_t> i32_data(tensor.size / sizeof(int32_t));
+                        file.read(reinterpret_cast<char*>(i32_data.data()), tensor.size);
+                        tensor.data = i32_data;
+                        break;
+                    }
+                    case GGML_TYPE_I16: {
+                        std::vector<int16_t> i16_data(tensor.size / sizeof(int16_t));
+                        file.read(reinterpret_cast<char*>(i16_data.data()), tensor.size);
+                        tensor.data = i16_data;
+                        break;
+                    }
+                    case GGML_TYPE_I8: {
+                        std::vector<int8_t> i8_data(tensor.size / sizeof(int8_t));
+                        file.read(reinterpret_cast<char*>(i8_data.data()), tensor.size);
+                        tensor.data = i8_data;
+                        break;
+                    }
+                    default: {
+                        std::vector<uint8_t> raw_data(tensor.size);
+                        file.read(reinterpret_cast<char*>(raw_data.data()), tensor.size);
+                        tensor.data = raw_data;
+                        break;
+                    }
+                }
+            } else {
+                // Para tipos cuantizados, usar vector<uint8_t>
+                std::vector<uint8_t> quant_data(tensor.size);
+                file.read(reinterpret_cast<char*>(quant_data.data()), tensor.size);
+                tensor.data = quant_data;
+            }
+        }
+
+        graph_data.tensors.push_back(tensor);
+    }
+
+    return graph_data;
+}
+
+
+void print_graph_data(const GraphData& graph_data, const char *output_filename) {
     // Abrir el archivo de salida
     std::ofstream outfile(output_filename);
     if (!outfile) {
@@ -123,115 +259,152 @@ void gguf_print_context(const struct gguf_context *ctx, const char *fname, const
         return;
     }
 
+    // Función helper para nombres de tipos GGUF
+    auto gguf_type_name = [](enum gguf_type type) -> const char* {
+        static const char* names[] = {
+            "UINT8", "INT8", "UINT16", "INT16", "UINT32", "INT32",
+            "FLOAT32", "BOOL", "STRING", "UINT64", "INT64", "FLOAT64", "ARRAY"
+        };
+        return (type >= GGUF_TYPE_UINT8 && type <= GGUF_TYPE_ARRAY) ? names[type] : "UNKNOWN";
+    };
+
     // Escribir el encabezado
-    outfile << "\n ************************************************************** \n";
-    outfile << "\n **************************  HEADER  ************************** \n";
-    outfile << "\n ************************************************************** \n";
-    outfile << "Version: " << gguf_get_version(ctx) << "\n";
-    outfile << "Number of tensors: " << gguf_get_n_tensors(ctx) << "\n";
-    outfile << "Number of key-value pairs: " << gguf_get_n_kv(ctx) << "\n";
+    outfile << "\n**************************************************************\n";
+    outfile << "**************************  HEADER  **************************\n";
+    outfile << "**************************************************************\n";
+    outfile << "Número de tensores: " << graph_data.header.n_tensors << "\n";
+    outfile << "Número de pares clave-valor: " << graph_data.header.n_kv << "\n";
 
     // Escribir los metadatos (pares clave-valor)
-    outfile << "\n ************************************************************** \n";
-    outfile << "\n *************************  METADATA  ************************* \n";
-    outfile << "\n ************************************************************** \n";
-    for (int64_t i = 0; i < gguf_get_n_kv(ctx); ++i) {
-        const char *key = gguf_get_key(ctx, i);
-        enum gguf_type type = gguf_get_kv_type(ctx, i);
-
-        outfile << "Key: " << key << "\n";
-
-        // Escribir el valor según su tipo
-        switch (type) {
+    outfile << "\n**************************************************************\n";
+    outfile << "*************************  METADATA  *************************\n";
+    outfile << "**************************************************************\n";
+    
+    for (const auto &md : graph_data.metadata) {
+        outfile << "Clave: " << md.key << "\n";
+        outfile << "Tipo: " << gguf_type_name(md.type) << "\n";
+        
+        switch (md.type) {
             case GGUF_TYPE_UINT8:
-                outfile << "Value: " << static_cast<int>(gguf_get_val_u8(ctx, i)) << " (uint8)\n";
+                outfile << "Valor: " << static_cast<int>(md.value.u8) << " (uint8)\n";
                 break;
             case GGUF_TYPE_INT8:
-                outfile << "Value: " << static_cast<int>(gguf_get_val_i8(ctx, i)) << " (int8)\n";
+                outfile << "Valor: " << static_cast<int>(md.value.i8) << " (int8)\n";
                 break;
             case GGUF_TYPE_UINT16:
-                outfile << "Value: " << gguf_get_val_u16(ctx, i) << " (uint16)\n";
+                outfile << "Valor: " << md.value.u16 << " (uint16)\n";
                 break;
             case GGUF_TYPE_INT16:
-                outfile << "Value: " << gguf_get_val_i16(ctx, i) << " (int16)\n";
+                outfile << "Valor: " << md.value.i16 << " (int16)\n";
                 break;
             case GGUF_TYPE_UINT32:
-                outfile << "Value: " << gguf_get_val_u32(ctx, i) << " (uint32)\n";
+                outfile << "Valor: " << md.value.u32 << " (uint32)\n";
                 break;
             case GGUF_TYPE_INT32:
-                outfile << "Value: " << gguf_get_val_i32(ctx, i) << " (int32)\n";
+                outfile << "Valor: " << md.value.i32 << " (int32)\n";
                 break;
             case GGUF_TYPE_FLOAT32:
-                outfile << "Value: " << gguf_get_val_f32(ctx, i) << " (float32)\n";
+                outfile << std::fixed << std::setprecision(6);
+                outfile << "Valor: " << md.value.f32 << " (float32)\n";
+                outfile.unsetf(std::ios::fixed);
+                outfile.precision(6);
                 break;
             case GGUF_TYPE_BOOL:
-                outfile << "Value: " << (gguf_get_val_bool(ctx, i) ? "true" : "false") << " (bool)\n";
+                outfile << "Valor: " << (md.value.b ? "true" : "false") << " (bool)\n";
                 break;
             case GGUF_TYPE_STRING:
-                outfile << "Value: " << gguf_get_val_str(ctx, i) << " (string)\n";
+                outfile << "Valor: " << md.str << " (string)\n";
                 break;
             case GGUF_TYPE_UINT64:
-                outfile << "Value: " << gguf_get_val_u64(ctx, i) << " (uint64)\n";
+                outfile << "Valor: " << md.value.u64 << " (uint64)\n";
                 break;
             case GGUF_TYPE_INT64:
-                outfile << "Value: " << gguf_get_val_i64(ctx, i) << " (int64)\n";
+                outfile << "Valor: " << md.value.i64 << " (int64)\n";
                 break;
             case GGUF_TYPE_FLOAT64:
-                outfile << "Value: " << gguf_get_val_f64(ctx, i) << " (float64)\n";
+                outfile << std::fixed << std::setprecision(6);
+                outfile << "Valor: " << md.value.f64 << " (float64)\n";
+                outfile.unsetf(std::ios::fixed);
+                outfile.precision(6);
                 break;
-            case GGUF_TYPE_ARRAY:
-                outfile << "Value: (array of type " << gguf_get_arr_type(ctx, i) << ", size " << gguf_get_arr_n(ctx, i) << ")\n";
+                case GGUF_TYPE_ARRAY:
+                outfile << "Tipo de array: " << gguf_type_name(md.array.type) << "\n";
+                outfile << "Tamaño del array: " << md.array.size << "\n";
+                
+                // Mostrar primeros elementos para tipos conocidos
+                if (md.array.type == GGUF_TYPE_STRING) {
+                    if (const auto* strs = std::get_if<std::vector<std::string>>(&md.array.data)) {
+                        outfile << "Primeros strings: [";
+                        for (size_t i = 0; i < std::min(strs->size(), 5UL); ++i) {
+                            outfile << "\"" << (*strs)[i] << "\" ";
+                        }
+                        outfile << "...]\n";
+                    }
+                }
+                else if (md.array.type == GGUF_TYPE_FLOAT32) {
+                    if (const auto* vals = std::get_if<std::vector<float>>(&md.array.data)) {
+                        outfile << std::fixed << std::setprecision(6);
+                        outfile << "Primeros valores: [";
+                        for (size_t i = 0; i < std::min(vals->size(), 5UL); ++i) {
+                            outfile << (*vals)[i] << " ";
+                        }
+                        outfile << "...]\n";
+                        outfile.unsetf(std::ios::fixed);
+                    }
+                }
+                else if (md.array.type == GGUF_TYPE_INT32) {
+                    if (const auto* vals = std::get_if<std::vector<int32_t>>(&md.array.data)) {
+                        outfile << "Primeros valores: [";
+                        for (size_t i = 0; i < std::min(vals->size(), 5UL); ++i) {
+                            outfile << (*vals)[i] << " ";
+                        }
+                        outfile << "...]\n";
+                    }
+                }
+                else if (md.array.type == GGUF_TYPE_UINT8) {
+                    if (const auto* vals = std::get_if<std::vector<uint8_t>>(&md.array.data)) {
+                        outfile << "Primeros valores: [";
+                        for (size_t i = 0; i < std::min(vals->size(), 5UL); ++i) {
+                            outfile << static_cast<int>((*vals)[i]) << " ";
+                        }
+                        outfile << "...]\n";
+                    }
+                }
+                else {
+                    outfile << "[Datos binarios de tipo " << gguf_type_name(md.array.type) << "]\n";
+                }
                 break;
             default:
-                outfile << "Value: Unknown type\n";
+                outfile << "Valor: [tipo desconocido]\n";
                 break;
         }
-
-        outfile << "Type: " << gguf_type_name(type) << "\n";
-        outfile << " ----------------------------------- \n";
+        outfile << "-----------------------------------\n";
     }
 
-    // Escribir la información de los tensores
-    outfile << "\n ************************************************************* \n";
-    outfile << "\n *************************  TENSORS  ************************* \n";
-    outfile << "\n ************************************************************* \n";
-    for (int64_t i = 0; i < gguf_get_n_tensors(ctx); ++i) {
-        const char *name = gguf_get_tensor_name(ctx, i);
-        enum ggml_type type = gguf_get_tensor_type(ctx, i);
-        size_t size = gguf_get_tensor_size(ctx, i);
-        size_t offset = gguf_get_tensor_offset(ctx, i);
-
-        const int32_t n_dims = gguf_get_tensor_n_dims(ctx, i);
-        const int64_t *dims = gguf_get_tensor_dims(ctx, i);
-
-        outfile << "Tensor Name: " << name << "\n";
-        outfile << "Tensor Type: " << ggml_type_name(type) << "\n";
-        outfile << "Tensor Size: " << size << " bytes\n";
-        outfile << "Tensor Offset: " << offset << "\n";
-
-        outfile << "Number of dimensions: " << n_dims << "\n";
-        outfile << "Dimensions: ";
-        for (int32_t j = 0; j < n_dims; ++j) {
-            outfile << dims[j] << " ";
+    // Escribir información de tensores
+    outfile << "\n**************************************************************\n";
+    outfile << "*************************  TENSORS  **************************\n";
+    outfile << "**************************************************************\n";
+    
+    for (const auto &tensor : graph_data.tensors) {
+        outfile << "Nombre: " << tensor.name << "\n";
+        outfile << "Tipo: " << ggml_type_name(tensor.type) << "\n";
+        outfile << "Tamaño: " << std::fixed << std::setprecision(2) 
+               << tensor.size / 1024.0f / 1024.0f << " MB\n";
+        outfile << "Número de dimensiones: " << tensor.n_dims << "\n";
+        outfile << "Tamaño de cada dimensión: ";
+        for (const auto &dim : tensor.dims) {
+            outfile << dim << " ";
         }
-        outfile << "\n";
-
-        read_tensor_data(fname, outfile, offset, size, type);
-
-        outfile << "\n ---------------------------------------------------------------------- \n";
-        outfile << "\n ---------------------------------------------------------------------- \n";
-        outfile << "\n ---------------------------------------------------------------------- \n";
-        outfile << "\n ---------------------------------------------------------------------- \n";
-        outfile << "\n ---------------------------------------------------------------------- \n";
-        outfile << "\n ---------------------------------------------------------------------- \n";
-        outfile << "\n";
+        outfile << "\n --------------------------------------------------------------- \n";
+        outfile << "\n --------------------------------------------------------------- \n";
+        outfile << "\n --------------------------------------------------------------- \n";
+        outfile << "\n --------------------------------------------------------------- \n";
     }
 
     // Cerrar el archivo de salida
     outfile.close();
-    std::cout << "La información se ha escrito en el archivo: " << output_filename << "\n";
 }
-
 
 // Función que obtiene la configuración de un archivo GGUF
 bool get_gguf_config(const char *fname, const char *output_filename) {
@@ -257,8 +430,9 @@ bool get_gguf_config(const char *fname, const char *output_filename) {
         return false;  // Código de error
     }
 
-    // Escribir el contexto en el archivo de salida
-    gguf_print_context(ctx_gguf, fname, output_filename);
+    GraphData graph_data = gguf_graph_data(ctx_gguf, fname);
+
+    print_graph_data(graph_data, output_filename);
 
     // Liberar el contexto GGUF cuando ya no sea necesario
     gguf_free(ctx_gguf);

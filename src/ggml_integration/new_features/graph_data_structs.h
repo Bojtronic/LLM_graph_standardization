@@ -5,7 +5,6 @@
 #include <string>
 #include <vector>
 #include <variant>
-#include "ggml.h"
 #include "gguf.h"
 
 /**
@@ -45,9 +44,21 @@ struct GGUFMetadata {
     
     /// Para tipos array
     struct {
-        enum gguf_type type; ///< Tipo de elementos del array
-        size_t size;        ///< Número de elementos
-        std::vector<uint8_t> data; ///< Datos del array
+        enum gguf_type type;
+        size_t size;
+        std::variant<
+            std::vector<uint8_t>,   // Para tipos crudos/bytes
+            std::vector<float>,     // F32
+            std::vector<uint16_t>,  // F16
+            std::vector<int8_t>,    // I8
+            std::vector<int16_t>,   // I16
+            std::vector<int32_t>,   // I32
+            std::vector<uint32_t>,  // U32
+            std::vector<int64_t>,   // I64
+            std::vector<uint64_t>,  // U64
+            std::vector<double>,    // F64
+            std::vector<std::string> // Strings
+        > data;
     } array;
     
     std::string str;        ///< Para strings
@@ -60,14 +71,17 @@ struct GGUFMetadata {
  * @brief Representación de un tensor GGUF
  */
 struct GGUFTensor {
-    std::string name;       ///< Nombre del tensor
-    enum ggml_type type;    ///< Tipo de datos del tensor
-    size_t size;            ///< Tamaño del tensor en bytes
-    std::vector<int64_t> dims; ///< Dimensiones del tensor
+    std::string name;           ///< Nombre del tensor
+    enum ggml_type type;        ///< Tipo de datos del tensor
+    size_t size;                ///< Tamaño del tensor en bytes
+    int32_t n_dims;             ///< Número de dimensiones del tensor
+    std::vector<int64_t> dims;  ///< Dimensiones del tensor
     
     /// Almacenamiento de datos usando variant
     std::variant<
         std::vector<uint8_t>,    ///< Para tipos cuantizados
+        std::vector<int8_t>,     ///< Para Int8
+        std::vector<int16_t>,    ///< Para Int16
         std::vector<float>,      ///< Para F32
         std::vector<uint16_t>,   ///< Para F16
         std::vector<int32_t>     ///< Para I32
@@ -106,6 +120,32 @@ struct GraphData {
      */
     const GGUFTensor* find_tensor(const std::string& name) const;
 };
+
+
+static inline size_t type_size(enum gguf_type type);
+
+template <typename T>
+static std::vector<T> read_array_data(const gguf_context *ctx, int64_t i, size_t size) {
+    if (!ctx || size == 0) {
+        return {};
+    }
+
+    const void *src_data = gguf_get_arr_data(ctx, i);
+    if (!src_data) {
+        return {};
+    }
+
+    std::vector<T> dest(size);
+    
+    if constexpr (std::is_same_v<T, uint8_t>) {
+        memcpy(dest.data(), src_data, size * sizeof(T));
+    } else {
+        const T *typed_src = static_cast<const T *>(src_data);
+        std::copy(typed_src, typed_src + size, dest.begin());
+    }
+    
+    return dest;
+}
 
 #endif // GRAPH_DATA_STRUCTS_H
 
