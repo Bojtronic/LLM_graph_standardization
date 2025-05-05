@@ -4,7 +4,8 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "${workspaceFolder}/src/ggml_integration/ggml/include"
+                "${workspaceFolder}/src/ggml_integration/ggml/include",
+                "${workspaceFolder}/src/ggml_integration/new_features"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",

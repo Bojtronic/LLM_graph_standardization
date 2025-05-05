@@ -370,7 +370,7 @@ void print_graph_data(const GraphData& graph_data, const char *output_filename) 
             case GGML_TYPE_I8:
                 if (const auto* data = std::get_if<std::vector<int8_t>>(&tensor.data)) {
                     for (size_t i = 0; i < std::min(data->size(), max_elements); ++i) {
-                        outfile << static_cast<int>((*data)[i]) << " "; // Mostrar como número
+                        outfile << static_cast<int>((*data)[i]) << " "; 
                     }
                 }
                 break;
@@ -382,7 +382,11 @@ void print_graph_data(const GraphData& graph_data, const char *output_filename) 
             case GGML_TYPE_Q2_K:
             case GGML_TYPE_Q3_K:
                 if (const auto* data = std::get_if<std::vector<uint8_t>>(&tensor.data)) {
-                    outfile << "[Datos cuantizados - " << data->size() << " bytes]";
+                    //outfile << "[Datos cuantizados - " << data->size() << " bytes]";
+                    outfile << "[Datos cuantizados: se toman en grupos de 8 bits en este caso]  ";
+                    for (size_t i = 0; i < std::min(data->size(), max_elements); ++i) {
+                        outfile << static_cast<uint8_t>((*data)[i]) << " "; 
+                    }
                 }
                 break;
                 

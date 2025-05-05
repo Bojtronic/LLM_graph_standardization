@@ -57,7 +57,7 @@ static inline size_t type_size(enum gguf_type type)
 
 
 
-/*
+
 // Instanciaciones explícitas para todos los tipos soportados
 template std::vector<uint8_t> read_array_data<uint8_t>(const gguf_context*, int64_t, size_t);
 template std::vector<int8_t> read_array_data<int8_t>(const gguf_context*, int64_t, size_t);
@@ -69,4 +69,3 @@ template std::vector<float> read_array_data<float>(const gguf_context*, int64_t,
 template std::vector<uint64_t> read_array_data<uint64_t>(const gguf_context*, int64_t, size_t);
 template std::vector<int64_t> read_array_data<int64_t>(const gguf_context*, int64_t, size_t);
 template std::vector<double> read_array_data<double>(const gguf_context*, int64_t, size_t);
-*/
