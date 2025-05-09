@@ -2,6 +2,7 @@
 #define GGUF_LOADER_H
 
 #include "graph_data_structs.h"
+#include "arch_info.h"
 #include <ggml.h>
 
 /**
@@ -24,6 +25,36 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname);
  */
 bool get_gguf_config(const char *fname);
 
+/**
+ * @brief Detects model architecture and configuration from metadata
+ * @param metadata Model metadata
+ * @return ModelConfig with detected architecture and features
+ */
+ModelConfig detect_model_config(const std::vector<GGUFMetadata>& metadata);
+
+
+/**
+ * @brief Infers the operation based on the tensor name
+ * @param name tensor name
+ * @return Inferred operation
+ */
+ggml_op infer_operation(const std::string& name);
+
+/**
+ * @brief Infers the source tensors based on the actual tensor name
+ * @param name tensor name
+ * @param tensors List of all tensors in the graph at the time of inference
+ * @note This function is used to infer the source tensors for a given tensor
+ * @return List of inferred source tensor names
+ */
+std::vector<std::string> infer_src_tensors(const std::string& name, const std::vector<GGUFTensor>& tensors);
+
+/**
+ * @brief Infers the destination tensor based on the actual tensor name
+ * @param name tensor name
+ * @return Inferred destination tensor name
+ */
+std::string infer_dst_tensor(const std::string& name);
 
 #endif // GGUF_LOADER_H
 

@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <variant>
+#include <cstring>
 #include "gguf.h"
 
 /**
@@ -76,7 +77,14 @@ struct GGUFTensor {
     size_t size;                ///< Tamaño del tensor en bytes
     int32_t n_dims;             ///< Número de dimensiones del tensor
     std::vector<int64_t> dims;  ///< Dimensiones del tensor
-    
+
+    enum ggml_op op;            ///< Operación que produce este tensor
+    std::vector<std::string> src_tensors; ///< Nombres de los tensores de entrada
+    std::string dst_tensor;     ///< Nombre del tensor destino que usará este resultado
+
+    /// Parámetros de la operación (similar a ggml_tensor)
+    //std::vector<int32_t> op_params;
+
     /// Almacenamiento de datos usando variant
     std::variant<
         std::vector<uint8_t>,    ///< Para tipos cuantizados
