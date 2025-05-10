@@ -375,70 +375,8 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
         tensor.dims.assign(dims, dims + n_dims);
         tensor.n_dims = n_dims;
 
-        // Leer datos del tensor
-        std::ifstream file(fname, std::ios::binary);
-        if (file)
-        {
-            size_t offset = gguf_get_tensor_offset(ctx, i);
-            file.seekg(offset, std::ios::beg);
-
-            // Asignar el tipo de almacenamiento correcto
-            if (!ggml_is_quantized(tensor.type))
-            {
-                switch (tensor.type)
-                {
-                case GGML_TYPE_F32:
-                {
-                    std::vector<float> float_data(tensor.size / sizeof(float));
-                    file.read(reinterpret_cast<char *>(float_data.data()), tensor.size);
-                    tensor.data = float_data;
-                    break;
-                }
-                case GGML_TYPE_F16:
-                {
-                    std::vector<uint16_t> f16_data(tensor.size / sizeof(uint16_t));
-                    file.read(reinterpret_cast<char *>(f16_data.data()), tensor.size);
-                    tensor.data = f16_data;
-                    break;
-                }
-                case GGML_TYPE_I32:
-                {
-                    std::vector<int32_t> i32_data(tensor.size / sizeof(int32_t));
-                    file.read(reinterpret_cast<char *>(i32_data.data()), tensor.size);
-                    tensor.data = i32_data;
-                    break;
-                }
-                case GGML_TYPE_I16:
-                {
-                    std::vector<int16_t> i16_data(tensor.size / sizeof(int16_t));
-                    file.read(reinterpret_cast<char *>(i16_data.data()), tensor.size);
-                    tensor.data = i16_data;
-                    break;
-                }
-                case GGML_TYPE_I8:
-                {
-                    std::vector<int8_t> i8_data(tensor.size / sizeof(int8_t));
-                    file.read(reinterpret_cast<char *>(i8_data.data()), tensor.size);
-                    tensor.data = i8_data;
-                    break;
-                }
-                default:
-                {
-                    std::vector<uint8_t> raw_data(tensor.size);
-                    file.read(reinterpret_cast<char *>(raw_data.data()), tensor.size);
-                    tensor.data = raw_data;
-                    break;
-                }
-                }
-            }
-            else
-            {
-                // Para tipos cuantizados, usar vector<uint8_t>
-                std::vector<uint8_t> quant_data(tensor.size);
-                file.read(reinterpret_cast<char *>(quant_data.data()), tensor.size);
-                tensor.data = quant_data;
-            }
-        }
+        // Marcar que no cargamos los datos
+        tensor.data = std::vector<uint8_t>();
 
         // Inferir operación y conexiones
         tensor.op = infer_operation(tensor.name);
