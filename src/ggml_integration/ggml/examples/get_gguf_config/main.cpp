@@ -1,4 +1,3 @@
-
 #include "gguf_loader.h"
 #include <iostream>
 #include <fstream>
@@ -9,6 +8,9 @@
 #include <iomanip>
 #include <cctype>
 #include <stdexcept>
+#include <set>
+#include <map>
+#include <utility>
 #include "arch_info.h"
 #include "gguf.h"
 
@@ -375,8 +377,79 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
         tensor.dims.assign(dims, dims + n_dims);
         tensor.n_dims = n_dims;
 
+        /////////////////////////////////////
+
+        // Leer datos del tensor
+        std::ifstream file(fname, std::ios::binary);
+        if (file)
+        {
+            size_t offset = gguf_get_tensor_offset(ctx, i);
+            file.seekg(offset, std::ios::beg);
+
+            // Asignar el tipo de almacenamiento correcto
+            if (!ggml_is_quantized(tensor.type))
+            {
+                switch (tensor.type)
+                {
+                case GGML_TYPE_F32:
+                {
+                    std::vector<float> float_data(tensor.size / sizeof(float));
+                    file.read(reinterpret_cast<char *>(float_data.data()), tensor.size);
+                    tensor.data = float_data;
+                    break;
+                }
+                case GGML_TYPE_F16:
+                {
+                    std::vector<uint16_t> f16_data(tensor.size / sizeof(uint16_t));
+                    file.read(reinterpret_cast<char *>(f16_data.data()), tensor.size);
+                    tensor.data = f16_data;
+                    break;
+                }
+                case GGML_TYPE_I32:
+                {
+                    std::vector<int32_t> i32_data(tensor.size / sizeof(int32_t));
+                    file.read(reinterpret_cast<char *>(i32_data.data()), tensor.size);
+                    tensor.data = i32_data;
+                    break;
+                }
+                case GGML_TYPE_I16:
+                {
+                    std::vector<int16_t> i16_data(tensor.size / sizeof(int16_t));
+                    file.read(reinterpret_cast<char *>(i16_data.data()), tensor.size);
+                    tensor.data = i16_data;
+                    break;
+                }
+                case GGML_TYPE_I8:
+                {
+                    std::vector<int8_t> i8_data(tensor.size / sizeof(int8_t));
+                    file.read(reinterpret_cast<char *>(i8_data.data()), tensor.size);
+                    tensor.data = i8_data;
+                    break;
+                }
+                default:
+                {
+                    std::vector<uint8_t> raw_data(tensor.size);
+                    file.read(reinterpret_cast<char *>(raw_data.data()), tensor.size);
+                    tensor.data = raw_data;
+                    break;
+                }
+                }
+            }
+            else
+            {
+                // Para tipos cuantizados, usar vector<uint8_t>
+                std::vector<uint8_t> quant_data(tensor.size);
+                file.read(reinterpret_cast<char *>(quant_data.data()), tensor.size);
+                tensor.data = quant_data;
+            }
+        }
+
+
+        ////////////////////////////////////
+
+
         // Marcar que no cargamos los datos
-        tensor.data = std::vector<uint8_t>();
+        //tensor.data = std::vector<uint8_t>();
 
         // Inferir operación y conexiones
         tensor.op = infer_operation(tensor.name);
@@ -388,6 +461,7 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
 
     return graph_data;
 }
+
 
 std::string generate_dot_graph(const GraphData &graph_data)
 {
@@ -403,8 +477,28 @@ std::string generate_dot_graph(const GraphData &graph_data)
     for (const auto &tensor : graph_data.tensors)
     {
         std::string node_name = tensor.name;
+
+        // Obtener nombre de la operación
+        std::string op_str;
+        switch (tensor.op)
+        {
+        case GGML_OP_MUL_MAT:
+            op_str = "MUL_MAT";
+            break;
+        case GGML_OP_NORM:
+            op_str = "NORM";
+            break;
+        case GGML_OP_SOFT_MAX:
+            op_str = "SOFT_MAX";
+            break;
+        default:
+            op_str = "OTHER";
+            break;
+        }
+
+        // Crear etiqueta con nombre, operación y dimensiones
         std::string label = tensor.name + "\\n" +
-                            "Type: " + std::to_string(tensor.type) + "\\n" +
+                            "Op: " + op_str + "\\n" +
                             "Dims: [";
 
         for (size_t i = 0; i < tensor.dims.size(); ++i)
@@ -420,16 +514,16 @@ std::string generate_dot_graph(const GraphData &graph_data)
         switch (tensor.op)
         {
         case GGML_OP_MUL_MAT:
-            color = "#d4f1f9";
-            break; // Azul claro
+            color = "#d4f1f9"; // Azul claro
+            break;
         case GGML_OP_NORM:
-            color = "#d5e8d4";
-            break; // Verde claro
+            color = "#d5e8d4"; // Verde claro
+            break;
         case GGML_OP_SOFT_MAX:
-            color = "#f8cecc";
-            break; // Rojo claro
+            color = "#f8cecc"; // Rojo claro
+            break;
         default:
-            color = "#f0f0f0"; // Gris
+            color = "#f0f0f0"; // Gris claro
         }
 
         dot << "  \"" << node_name << "\" [label=\"" << label << "\", fillcolor=\"" << color << "\"];\n";
@@ -457,6 +551,7 @@ std::string generate_dot_graph(const GraphData &graph_data)
 
     return dot.str();
 }
+
 
 // Función para guardar el gráfico DOT en un archivo
 bool save_dot_graph(const GraphData &graph_data, const std::string &filename)

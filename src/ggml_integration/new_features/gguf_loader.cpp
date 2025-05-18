@@ -6,12 +6,17 @@
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
+#include <cctype>
+#include <stdexcept>
+#include <set>
+#include <map>
+#include <utility>
 #include "arch_info.h"
 #include "gguf.h"
 
-
 // Función para inferir la operación basada en el nombre del tensor
-enum ggml_op infer_operation(const std::string& tensor_name) {
+enum ggml_op infer_operation(const std::string &tensor_name)
+{
     // Patrones para atención
     if (tensor_name.find("attn_q.") != std::string::npos ||
         tensor_name.find("q_proj.") != std::string::npos ||
@@ -20,144 +25,205 @@ enum ggml_op infer_operation(const std::string& tensor_name) {
         tensor_name.find("attn_v.") != std::string::npos ||
         tensor_name.find("v_proj.") != std::string::npos ||
         tensor_name.find("attn_output.") != std::string::npos ||
-        tensor_name.find("out_proj.") != std::string::npos) {
+        tensor_name.find("out_proj.") != std::string::npos)
+    {
         return GGML_OP_MUL_MAT;
     }
-    
+
     // Patrones para feed-forward
     if (tensor_name.find("ffn_up.") != std::string::npos ||
         tensor_name.find("ffn_down.") != std::string::npos ||
         tensor_name.find("ffn_gate.") != std::string::npos ||
         tensor_name.find("fc1.") != std::string::npos ||
-        tensor_name.find("fc2.") != std::string::npos) {
+        tensor_name.find("fc2.") != std::string::npos)
+    {
         return GGML_OP_MUL_MAT;
     }
-    
+
     // Patrones para embeddings
     if (tensor_name.find("token_embd.") != std::string::npos ||
         tensor_name.find("embed_tokens.") != std::string::npos ||
         tensor_name.find("position_embd.") != std::string::npos ||
-        tensor_name.find("embed_positions.") != std::string::npos) {
+        tensor_name.find("embed_positions.") != std::string::npos)
+    {
         return GGML_OP_MUL_MAT;
     }
-    
+
     // Patrones para normalización
     if (tensor_name.find("_norm.") != std::string::npos ||
         tensor_name.find("layer_norm.") != std::string::npos ||
-        tensor_name.find("final_layer_norm.") != std::string::npos) {
+        tensor_name.find("final_layer_norm.") != std::string::npos)
+    {
         return GGML_OP_NORM;
     }
-    
+
     // Por defecto asumimos una operación de multiplicación de matrices
     return GGML_OP_MUL_MAT;
 }
 
 // Función para inferir tensores fuente
-std::vector<std::string> infer_src_tensors(const std::string& tensor_name, 
-                                         const std::vector<GGUFTensor>& tensors) {
+std::vector<std::string> infer_src_tensors(const std::string &tensor_name,
+                                           const std::vector<GGUFTensor> &tensors)
+{
     std::vector<std::string> src_tensors;
-    
-    // Extraer el prefijo del bloque (ej. "blk.0.", "model.decoder.layers.0.")
-    size_t block_end = tensor_name.find_last_of('.');
-    std::string block_prefix = (block_end != std::string::npos) ? 
-                              tensor_name.substr(0, block_end + 1) : "";
-    
-    // Para tensores de atención
-    if (tensor_name.find("attn_output.") != std::string::npos ||
-        tensor_name.find("out_proj.") != std::string::npos) {
-        src_tensors.push_back(block_prefix + "attn_q");
-        src_tensors.push_back(block_prefix + "attn_k");
-        src_tensors.push_back(block_prefix + "attn_v");
-    }
-    else if (tensor_name.find("attn_q.") != std::string::npos ||
-             tensor_name.find("q_proj.") != std::string::npos ||
-             tensor_name.find("attn_k.") != std::string::npos ||
-             tensor_name.find("k_proj.") != std::string::npos ||
-             tensor_name.find("attn_v.") != std::string::npos ||
-             tensor_name.find("v_proj.") != std::string::npos) {
-        // Buscar el tensor de entrada normalizado
-        std::string norm_name = block_prefix + "attn_norm";
-        for (const auto& t : tensors) {
-            if (t.name.find(norm_name) != std::string::npos) {
-                src_tensors.push_back(t.name);
-                break;
+
+    try
+    {
+        // Extraer prefijo de bloque (ej. "blk.0.", "model.decoder.layers.0.")
+        size_t block_end = tensor_name.find_last_of('.');
+        std::string block_prefix = (block_end != std::string::npos) ? tensor_name.substr(0, block_end + 1) : "";
+
+        // 1. Para tensores de atención Q/K/V
+        if (tensor_name.find("attn_q.") != std::string::npos ||
+            tensor_name.find("q_proj.") != std::string::npos ||
+            tensor_name.find("attn_k.") != std::string::npos ||
+            tensor_name.find("k_proj.") != std::string::npos ||
+            tensor_name.find("attn_v.") != std::string::npos ||
+            tensor_name.find("v_proj.") != std::string::npos)
+        {
+
+            // Buscar tensor de normalización correspondiente
+            std::string norm_name = block_prefix + "attn_norm";
+            for (const auto &t : tensors)
+            {
+                if (t.name.find(norm_name) != std::string::npos)
+                {
+                    src_tensors.push_back(t.name);
+                    break;
+                }
             }
         }
-    }
-    // Para tensores feed-forward
-    else if (tensor_name.find("ffn_down.") != std::string::npos ||
-             tensor_name.find("fc2.") != std::string::npos) {
-        src_tensors.push_back(block_prefix + "ffn_up");
-    }
-    else if (tensor_name.find("ffn_up.") != std::string::npos ||
-             tensor_name.find("fc1.") != std::string::npos) {
-        // Buscar el tensor de entrada normalizado
-        std::string norm_name = block_prefix + "ffn_norm";
-        for (const auto& t : tensors) {
-            if (t.name.find(norm_name) != std::string::npos) {
-                src_tensors.push_back(t.name);
-                break;
+        // 2. Para tensores de salida de atención
+        else if (tensor_name.find("attn_output.") != std::string::npos ||
+                 tensor_name.find("out_proj.") != std::string::npos)
+        {
+            src_tensors.push_back(block_prefix + "attn_q");
+            src_tensors.push_back(block_prefix + "attn_k");
+            src_tensors.push_back(block_prefix + "attn_v");
+        }
+        // 3. Para tensores feed-forward
+        else if (tensor_name.find("ffn_down.") != std::string::npos ||
+                 tensor_name.find("fc2.") != std::string::npos)
+        {
+            src_tensors.push_back(block_prefix + "ffn_up");
+        }
+        else if (tensor_name.find("ffn_up.") != std::string::npos ||
+                 tensor_name.find("fc1.") != std::string::npos)
+        {
+            // Buscar tensor de normalización FFN
+            std::string norm_name = block_prefix + "ffn_norm";
+            for (const auto &t : tensors)
+            {
+                if (t.name.find(norm_name) != std::string::npos)
+                {
+                    src_tensors.push_back(t.name);
+                    break;
+                }
             }
         }
-    }
-    // Para capas de normalización
-    else if (tensor_name.find("_norm.") != std::string::npos) {
-        // Buscar el tensor de salida de la capa anterior
-        if (!block_prefix.empty()) {
-            // Extraer el número de bloque
-            size_t block_start = block_prefix.find_last_of('.', block_prefix.length() - 2);
-            if (block_start != std::string::npos) {
-                int block_num = std::stoi(block_prefix.substr(block_start + 1, block_prefix.length() - block_start - 2));
-                if (block_num > 0) {
-                    std::string prev_block = block_prefix.substr(0, block_start + 1) + 
-                                           std::to_string(block_num - 1) + ".";
-                    src_tensors.push_back(prev_block + "layer_output");
+        // 4. Para capas de normalización
+        else if (tensor_name.find("_norm.") != std::string::npos)
+        {
+            if (!block_prefix.empty())
+            {
+                // Extraer número de bloque de forma segura
+                auto extract_block_num = [](const std::string &s) -> int
+                {
+                    try
+                    {
+                        size_t last_dot = s.find_last_of('.', s.length() - 2);
+                        if (last_dot == std::string::npos)
+                            return -1;
+
+                        size_t prev_dot = s.find_last_of('.', last_dot - 1);
+                        if (prev_dot == std::string::npos)
+                            return -1;
+
+                        std::string num_str = s.substr(prev_dot + 1, last_dot - prev_dot - 1);
+                        if (num_str.empty() || !std::all_of(num_str.begin(), num_str.end(), ::isdigit))
+                        {
+                            return -1;
+                        }
+                        return std::stoi(num_str);
+                    }
+                    catch (...)
+                    {
+                        return -1;
+                    }
+                };
+
+                int block_num = extract_block_num(block_prefix);
+                if (block_num > 0)
+                {
+                    // Construir nombre del bloque anterior
+                    size_t block_start = block_prefix.find_last_of('.', block_prefix.length() - 2);
+                    if (block_start != std::string::npos)
+                    {
+                        std::string prev_block = block_prefix.substr(0, block_start + 1) +
+                                                 std::to_string(block_num - 1) + ".";
+                        src_tensors.push_back(prev_block + "layer_output");
+                    }
                 }
             }
         }
     }
-    
+    catch (const std::exception &e)
+    {
+        std::cerr << "Error procesando tensor '" << tensor_name << "': " << e.what() << std::endl;
+    }
+
+    // Eliminar posibles duplicados
+    std::sort(src_tensors.begin(), src_tensors.end());
+    src_tensors.erase(std::unique(src_tensors.begin(), src_tensors.end()), src_tensors.end());
+
     return src_tensors;
 }
 
 // Función para inferir el tensor destino
-std::string infer_dst_tensor(const std::string& tensor_name) {
+std::string infer_dst_tensor(const std::string &tensor_name)
+{
     // Extraer el prefijo del bloque
     size_t block_end = tensor_name.find_last_of('.');
-    std::string block_prefix = (block_end != std::string::npos) ? 
-                              tensor_name.substr(0, block_end + 1) : "";
-    
+    std::string block_prefix = (block_end != std::string::npos) ? tensor_name.substr(0, block_end + 1) : "";
+
     // Para tensores de atención Q/K/V
     if (tensor_name.find("attn_q.") != std::string::npos ||
         tensor_name.find("q_proj.") != std::string::npos ||
         tensor_name.find("attn_k.") != std::string::npos ||
         tensor_name.find("k_proj.") != std::string::npos ||
         tensor_name.find("attn_v.") != std::string::npos ||
-        tensor_name.find("v_proj.") != std::string::npos) {
+        tensor_name.find("v_proj.") != std::string::npos)
+    {
         return block_prefix + "attn_output";
     }
     // Para tensores feed-forward up/down
     else if (tensor_name.find("ffn_up.") != std::string::npos ||
-             tensor_name.find("fc1.") != std::string::npos) {
+             tensor_name.find("fc1.") != std::string::npos)
+    {
         return block_prefix + "ffn_down";
     }
     else if (tensor_name.find("ffn_down.") != std::string::npos ||
-             tensor_name.find("fc2.") != std::string::npos) {
+             tensor_name.find("fc2.") != std::string::npos)
+    {
         return block_prefix + "layer_output";
     }
     // Para tensores de normalización
-    else if (tensor_name.find("_norm.") != std::string::npos) {
-        if (tensor_name.find("attn_norm.") != std::string::npos) {
+    else if (tensor_name.find("_norm.") != std::string::npos)
+    {
+        if (tensor_name.find("attn_norm.") != std::string::npos)
+        {
             return block_prefix + "attn_q";
         }
-        else if (tensor_name.find("ffn_norm.") != std::string::npos) {
+        else if (tensor_name.find("ffn_norm.") != std::string::npos)
+        {
             return block_prefix + "ffn_up";
         }
-        else {
+        else
+        {
             return block_prefix + "layer_output";
         }
     }
-    
+
     return ""; // No se pudo inferir
 }
 
@@ -311,6 +377,8 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
         tensor.dims.assign(dims, dims + n_dims);
         tensor.n_dims = n_dims;
 
+        /////////////////////////////////////
+
         // Leer datos del tensor
         std::ifstream file(fname, std::ios::binary);
         if (file)
@@ -376,12 +444,17 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
             }
         }
 
-        
+
+        ////////////////////////////////////
+
+
+        // Marcar que no cargamos los datos
+        //tensor.data = std::vector<uint8_t>();
+
         // Inferir operación y conexiones
         tensor.op = infer_operation(tensor.name);
         tensor.src_tensors = infer_src_tensors(tensor.name, graph_data.tensors);
         tensor.dst_tensor = infer_dst_tensor(tensor.name);
-        
 
         graph_data.tensors.push_back(tensor);
     }
@@ -390,75 +463,112 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
 }
 
 
-std::string generate_dot_graph(const GraphData& graph_data) {
+std::string generate_dot_graph(const GraphData &graph_data)
+{
     std::ostringstream dot;
-    
+
     // Encabezado del archivo DOT
     dot << "digraph GGUF_Graph {\n";
     dot << "  rankdir=LR;\n";
     dot << "  node [shape=box, style=filled, fillcolor=\"#f0f0f0\", fontname=\"Helvetica\"];\n";
     dot << "  edge [fontname=\"Helvetica\", fontsize=10];\n\n";
-    
+
     // Agregar nodos (tensores)
-    for (const auto& tensor : graph_data.tensors) {
+    for (const auto &tensor : graph_data.tensors)
+    {
         std::string node_name = tensor.name;
-        std::string label = tensor.name + "\\n" + 
-                          "Type: " + std::to_string(tensor.type) + "\\n" +
-                          "Dims: [";
-        
-        for (size_t i = 0; i < tensor.dims.size(); ++i) {
-            if (i > 0) label += ", ";
+
+        // Obtener nombre de la operación
+        std::string op_str;
+        switch (tensor.op)
+        {
+        case GGML_OP_MUL_MAT:
+            op_str = "MUL_MAT";
+            break;
+        case GGML_OP_NORM:
+            op_str = "NORM";
+            break;
+        case GGML_OP_SOFT_MAX:
+            op_str = "SOFT_MAX";
+            break;
+        default:
+            op_str = "OTHER";
+            break;
+        }
+
+        // Crear etiqueta con nombre, operación y dimensiones
+        std::string label = tensor.name + "\\n" +
+                            "Op: " + op_str + "\\n" +
+                            "Dims: [";
+
+        for (size_t i = 0; i < tensor.dims.size(); ++i)
+        {
+            if (i > 0)
+                label += ", ";
             label += std::to_string(tensor.dims[i]);
         }
         label += "]";
-        
+
         // Color diferente según el tipo de operación
         std::string color;
-        switch (tensor.op) {
-            case GGML_OP_MUL_MAT: color = "#d4f1f9"; break;  // Azul claro
-            case GGML_OP_NORM:    color = "#d5e8d4"; break;  // Verde claro
-            case GGML_OP_SOFT_MAX:color = "#f8cecc"; break;  // Rojo claro
-            default:              color = "#f0f0f0";         // Gris
+        switch (tensor.op)
+        {
+        case GGML_OP_MUL_MAT:
+            color = "#d4f1f9"; // Azul claro
+            break;
+        case GGML_OP_NORM:
+            color = "#d5e8d4"; // Verde claro
+            break;
+        case GGML_OP_SOFT_MAX:
+            color = "#f8cecc"; // Rojo claro
+            break;
+        default:
+            color = "#f0f0f0"; // Gris claro
         }
-        
+
         dot << "  \"" << node_name << "\" [label=\"" << label << "\", fillcolor=\"" << color << "\"];\n";
     }
-    
+
     dot << "\n";
-    
+
     // Agregar conexiones (aristas)
-    for (const auto& tensor : graph_data.tensors) {
+    for (const auto &tensor : graph_data.tensors)
+    {
         // Conexiones desde tensores fuente
-        for (const auto& src : tensor.src_tensors) {
+        for (const auto &src : tensor.src_tensors)
+        {
             dot << "  \"" << src << "\" -> \"" << tensor.name << "\";\n";
         }
-        
+
         // Conexión al tensor destino (si existe)
-        if (!tensor.dst_tensor.empty()) {
+        if (!tensor.dst_tensor.empty())
+        {
             dot << "  \"" << tensor.name << "\" -> \"" << tensor.dst_tensor << "\";\n";
         }
     }
-    
+
     dot << "}\n";
-    
+
     return dot.str();
 }
 
+
 // Función para guardar el gráfico DOT en un archivo
-bool save_dot_graph(const GraphData& graph_data, const std::string& filename) {
+bool save_dot_graph(const GraphData &graph_data, const std::string &filename)
+{
     std::ofstream out_file(filename);
-    if (!out_file.is_open()) {
+    if (!out_file.is_open())
+    {
         std::cerr << "Error al abrir el archivo: " << filename << std::endl;
         return false;
     }
-    
+
     std::string dot_content = generate_dot_graph(graph_data);
     out_file << dot_content;
     out_file.close();
-    
+
     return true;
 }
-
 
 /**
  * @brief Función principal para cargar un archivo GGUF y obtener la configuración
