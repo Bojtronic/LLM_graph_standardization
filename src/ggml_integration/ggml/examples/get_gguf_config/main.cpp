@@ -14,50 +14,75 @@
 #include "arch_info.h"
 #include "gguf.h"
 
-// Función para inferir la operación basada en el nombre del tensor
-enum ggml_op infer_operation(const std::string &tensor_name)
-{
-    // Patrones para atención
-    if (tensor_name.find("attn_q.") != std::string::npos ||
-        tensor_name.find("q_proj.") != std::string::npos ||
-        tensor_name.find("attn_k.") != std::string::npos ||
-        tensor_name.find("k_proj.") != std::string::npos ||
-        tensor_name.find("attn_v.") != std::string::npos ||
-        tensor_name.find("v_proj.") != std::string::npos ||
-        tensor_name.find("attn_output.") != std::string::npos ||
-        tensor_name.find("out_proj.") != std::string::npos)
-    {
-        return GGML_OP_MUL_MAT;
+// Función mejorada para inferir la operación basada en el nombre del tensor
+enum ggml_op infer_operation(const std::string &tensor_name) {
+    // Mapa de patrones a operaciones para mayor flexibilidad y mantenibilidad
+    static const std::vector<std::pair<std::vector<std::string>, ggml_op>> op_patterns = {
+        // Atención y proyecciones
+        {{"attn_q.", "q_proj.", "attn_k.", "k_proj.", "attn_v.", "v_proj.", 
+          "attn_output.", "out_proj.", "wq.", "wk.", "wv.", "wo.", 
+          "wq_a.", "wq_b.", "wkv_a_mqa.", "wkv_b.", "qkv_w."}, GGML_OP_MUL_MAT},
+        
+        // Feed-forward y MLP
+        {{"ffn_up.", "ffn_down.", "ffn_gate.", "fc1.", "fc2.", 
+          "mlp_lin1.", "mlp_lin2.", "ffn_up_exps.", "ffn_down_exps.", 
+          "ffn_gate_exps.", "ffn_up_shexp.", "ffn_down_shexp.", 
+          "ffn_gate_shexp."}, GGML_OP_MUL_MAT},
+        
+        // Capas de normalización
+        {{"_norm.", "layer_norm.", "final_layer_norm.", "attn_norm.", 
+          "ffn_norm.", "norm1.", "norm2.", "output_norm."}, GGML_OP_NORM},
+        
+        // Embebimientos
+        {{"token_embd.", "embed_tokens.", "position_embd.", 
+          "embed_positions.", "cls_token.", "pe."}, GGML_OP_MUL_MAT},
+        
+        // Operaciones de convolución (ViT)
+        {{"proj_w.", "proj_b.", "conv_"}, GGML_OP_CONV},
+        
+        // Operaciones de activación
+        {{"gelu.", "silu.", "relu.", "softmax."}, GGML_OP_GELU}, // GGML_OP_SILU, etc.
+        
+        // Operaciones de pooling y posprocesamiento
+        {{"pool.", "head.", "classifier."}, GGML_OP_MUL_MAT},
+        
+        // Operaciones de RoPE
+        {{"rope.", "rotary."}, GGML_OP_ROPE}
+    };
+
+    // Buscar coincidencias con los patrones definidos
+    for (const auto &[patterns, op] : op_patterns) {
+        for (const auto &pattern : patterns) {
+            if (tensor_name.find(pattern) != std::string::npos) {
+                return op;
+            }
+        }
     }
 
-    // Patrones para feed-forward
-    if (tensor_name.find("ffn_up.") != std::string::npos ||
-        tensor_name.find("ffn_down.") != std::string::npos ||
-        tensor_name.find("ffn_gate.") != std::string::npos ||
-        tensor_name.find("fc1.") != std::string::npos ||
-        tensor_name.find("fc2.") != std::string::npos)
-    {
-        return GGML_OP_MUL_MAT;
+    // Patrones especiales para operaciones complejas
+    if (tensor_name.find("softmax") != std::string::npos) {
+        return GGML_OP_SOFT_MAX;
+    }
+    if (tensor_name.find("silu") != std::string::npos) {
+        return GGML_OP_SILU;
+    }
+    if (tensor_name.find("gelu") != std::string::npos) {
+        return GGML_OP_GELU;
+    }
+    if (tensor_name.find("concat") != std::string::npos) {
+        return GGML_OP_CONCAT;
+    }
+    if (tensor_name.find("reshape") != std::string::npos || 
+        tensor_name.find("view") != std::string::npos) {
+        return GGML_OP_RESHAPE;
     }
 
-    // Patrones para embeddings
-    if (tensor_name.find("token_embd.") != std::string::npos ||
-        tensor_name.find("embed_tokens.") != std::string::npos ||
-        tensor_name.find("position_embd.") != std::string::npos ||
-        tensor_name.find("embed_positions.") != std::string::npos)
-    {
-        return GGML_OP_MUL_MAT;
+    // Para tensores de entrada/salida especiales
+    if (tensor_name == "input" || tensor_name == "output") {
+        return GGML_OP_NONE;
     }
 
-    // Patrones para normalización
-    if (tensor_name.find("_norm.") != std::string::npos ||
-        tensor_name.find("layer_norm.") != std::string::npos ||
-        tensor_name.find("final_layer_norm.") != std::string::npos)
-    {
-        return GGML_OP_NORM;
-    }
-
-    // Por defecto asumimos una operación de multiplicación de matrices
+    // Operación por defecto (más común en modelos)
     return GGML_OP_MUL_MAT;
 }
 
