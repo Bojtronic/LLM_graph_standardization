@@ -6,6 +6,42 @@
 #include <cstring>
 #include <string>
 
+// Model type definitions
+enum ModelType {
+    MODEL_TYPE_UNKNOWN,
+    MODEL_TYPE_LLAMA,
+    MODEL_TYPE_VIT,
+    MODEL_TYPE_WHISPER
+};
+
+// Model parameters structure
+struct ModelParams {
+    ModelType type;
+    std::string model_path;
+    std::string input_path;
+    std::string output_path;
+    int n_threads;
+    int n_gpu_layers;
+    bool use_gpu;
+    
+    // Common parameters
+    int seed;
+    float temperature;
+    int top_k;
+    float top_p;
+    
+    // LLaMA specific
+    int n_ctx;
+    int n_batch;
+    
+    // ViT specific
+    int image_size;
+    
+    // Whisper specific
+    int n_mels;
+    int n_audio_ctx;
+};
+
 // Módulos comunes
 ggml_tensor * multi_head_attention(ggml_context * ctx, ggml_tensor * Q, ggml_tensor * K, ggml_tensor * V, bool is_causal);
 ggml_tensor * layer_norm(ggml_context * ctx, ggml_tensor * input, bool use_rmsnorm, float eps);

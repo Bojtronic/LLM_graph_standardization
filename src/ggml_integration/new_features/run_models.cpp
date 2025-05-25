@@ -11,41 +11,6 @@
 #include <ggml-cpu.h>
 #include <ggml-cuda.h>
 
-// Model type definitions
-enum ModelType {
-    MODEL_TYPE_UNKNOWN,
-    MODEL_TYPE_LLAMA,
-    MODEL_TYPE_VIT,
-    MODEL_TYPE_WHISPER
-};
-
-// Model parameters structure
-struct ModelParams {
-    ModelType type;
-    std::string model_path;
-    std::string input_path;
-    std::string output_path;
-    int n_threads;
-    int n_gpu_layers;
-    bool use_gpu;
-    
-    // Common parameters
-    int seed;
-    float temperature;
-    int top_k;
-    float top_p;
-    
-    // LLaMA specific
-    int n_ctx;
-    int n_batch;
-    
-    // ViT specific
-    int image_size;
-    
-    // Whisper specific
-    int n_mels;
-    int n_audio_ctx;
-};
 
 // Function prototypes
 ModelType detect_model_type(const gguf_context* ctx);
@@ -308,17 +273,17 @@ void run_model(const ModelParams& params) {
     switch (params.type) {
         case MODEL_TYPE_LLAMA: {
             std::cout << "Running LLaMA model...\n";
-            // TODO: Implement LLaMA specific loading and inference
+            // return run_llama_model(ctx, backend, params);
             break;
         }
         case MODEL_TYPE_VIT: {
             std::cout << "Running ViT model...\n";
-            // TODO: Implement ViT specific loading and inference
+            // return run_vit_model(ctx, backend, params);
             break;
         }
         case MODEL_TYPE_WHISPER: {
             std::cout << "Running Whisper model...\n";
-            // TODO: Implement Whisper specific loading and inference
+            // return run_whisper_model(ctx, backend, params);
             break;
         }
         default: {
