@@ -1,60 +1,12 @@
+#include "run_models.h"
 #include <iostream>
-#include <string>
-#include <vector>
-#include <map>
 #include <cstring>
 #include <cstdlib>
-#include "gguf.h"
-#include "ggml.h"
-#include "model_modules.h"
 #include <ggml-backend.h>
 #include <ggml-cpu.h>
 #include <ggml-cuda.h>
 
-
-// Function prototypes
-ModelType detect_model_type(const gguf_context* ctx);
-void print_usage(const char* prog_name);
-ModelParams parse_command_line(int argc, char** argv);
-void configure_model_specific_params(ModelParams& params, const gguf_context* ctx);
-void run_model(const ModelParams& params);
-
-int main(int argc, char** argv) {
-    // Parse command line arguments
-    ModelParams params = parse_command_line(argc, argv);
-    if (params.model_path.empty()) {
-        print_usage(argv[0]);
-        return 1;
-    }
-
-    // Load GGUF file to detect model type
-    struct ggml_context* ctx = NULL;
-    struct gguf_init_params gguf_params = {
-        .no_alloc = true,
-        .ctx = &ctx,
-    };
-    
-    struct gguf_context* ctx_gguf = gguf_init_from_file(params.model_path.c_str(), gguf_params);
-    if (!ctx_gguf) {
-        std::cerr << "Failed to load GGUF file: " << params.model_path << std::endl;
-        return 1;
-    }
-
-    // Detect model type and configure parameters
-    params.type = detect_model_type(ctx_gguf);
-    configure_model_specific_params(params, ctx_gguf);
-    
-    // Run the appropriate model
-    run_model(params);
-
-    // Cleanup
-    gguf_free(ctx_gguf);
-    
-    return 0;
-}
-
 ModelType detect_model_type(const gguf_context* ctx) {
-    // Check for LLaMA architecture
     int arch_key = gguf_find_key(ctx, "general.architecture");
     const char* arch = (arch_key != -1) ? gguf_get_val_str(ctx, arch_key) : nullptr;
     if (!arch) {
@@ -65,12 +17,10 @@ ModelType detect_model_type(const gguf_context* ctx) {
         return MODEL_TYPE_LLAMA;
     }
     
-    // Check for ViT architecture
     if (strstr(arch, "vit") != nullptr) {
         return MODEL_TYPE_VIT;
     }
     
-    // Check for Whisper architecture
     if (strcmp(arch, "whisper") == 0) {
         return MODEL_TYPE_WHISPER;
     }
@@ -96,7 +46,7 @@ void print_usage(const char* prog_name) {
 ModelParams parse_command_line(int argc, char** argv) {
     ModelParams params;
     params.type = MODEL_TYPE_UNKNOWN;
-    params.n_threads = 0; // 0 = auto-detect
+    params.n_threads = 0;
     params.n_gpu_layers = 0;
     params.use_gpu = false;
     params.seed = -1;
@@ -169,16 +119,13 @@ ModelParams parse_command_line(int argc, char** argv) {
 }
 
 void configure_model_specific_params(ModelParams& params, const gguf_context* ctx) {
-    // Set default parameters based on model type
     switch (params.type) {
         case MODEL_TYPE_LLAMA: {
-            // Try to get context length from GGUF metadata
             const int n_ctx = gguf_find_key(ctx, "llama.context_length");
             if (n_ctx != -1) {
                 params.n_ctx = gguf_get_val_u32(ctx, n_ctx);
             }
             
-            // Try to get batch size from GGUF metadata
             const int n_batch = gguf_find_key(ctx, "llama.batch_size");
             if (n_batch != -1) {
                 params.n_batch = gguf_get_val_u32(ctx, n_batch);
@@ -190,7 +137,6 @@ void configure_model_specific_params(ModelParams& params, const gguf_context* ct
             break;
         }
         case MODEL_TYPE_VIT: {
-            // Try to get image size from GGUF metadata
             const int img_size = gguf_find_key(ctx, "vit.image_size");
             if (img_size != -1) {
                 params.image_size = gguf_get_val_u32(ctx, img_size);
@@ -206,7 +152,6 @@ void configure_model_specific_params(ModelParams& params, const gguf_context* ct
             break;
         }
         case MODEL_TYPE_WHISPER: {
-            // Try to get audio parameters from GGUF metadata
             const int n_mels = gguf_find_key(ctx, "whisper.n_mels");
             if (n_mels != -1) {
                 params.n_mels = gguf_get_val_u32(ctx, n_mels);
@@ -233,7 +178,6 @@ void configure_model_specific_params(ModelParams& params, const gguf_context* ct
         }
     }
     
-    // Prompt for missing required parameters
     if (params.input_path.empty() && params.type != MODEL_TYPE_LLAMA) {
         std::cout << "Enter input path: ";
         std::cin >> params.input_path;
@@ -246,10 +190,8 @@ void configure_model_specific_params(ModelParams& params, const gguf_context* ct
 }
 
 void run_model(const ModelParams& params) {
-    // Initialize backend
     ggml_backend_t backend = NULL;
     if (params.use_gpu) {
-        // Try to initialize GPU backend
         backend = ggml_backend_cuda_init(0);
         if (!backend) {
             std::cerr << "Warning: Failed to initialize CUDA backend. Falling back to CPU.\n";
@@ -260,40 +202,36 @@ void run_model(const ModelParams& params) {
         backend = ggml_backend_cpu_init();
     }
     
-    // Initialize context
     struct ggml_init_params ggml_params = {
-        .mem_size = 16 * 1024 * 1024, // 16 MB
+        .mem_size = 16 * 1024 * 1024,
         .mem_buffer = NULL,
         .no_alloc = false,
     };
     
     struct ggml_context* ctx = ggml_init(ggml_params);
+    bool success = false;
     
-    // Load model based on type
     switch (params.type) {
-        case MODEL_TYPE_LLAMA: {
+        case MODEL_TYPE_LLAMA:
             std::cout << "Running LLaMA model...\n";
-            // return run_llama_model(ctx, backend, params);
+            success = run_llama_model(ctx, backend, params);
             break;
-        }
-        case MODEL_TYPE_VIT: {
+        case MODEL_TYPE_VIT:
             std::cout << "Running ViT model...\n";
-            // return run_vit_model(ctx, backend, params);
+            success = run_vit_model(ctx, backend, params);
             break;
-        }
-        case MODEL_TYPE_WHISPER: {
+        case MODEL_TYPE_WHISPER:
             std::cout << "Running Whisper model...\n";
-            // return run_whisper_model(ctx, backend, params);
+            success = run_whisper_model(ctx, backend, params);
             break;
-        }
-        default: {
+        default:
             std::cerr << "Error: Unknown model type\n";
-            break;
-        }
     }
     
-    // Cleanup
+    if (!success) {
+        std::cerr << "Model execution failed\n";
+    }
+    
     ggml_free(ctx);
     ggml_backend_free(backend);
 }
-
