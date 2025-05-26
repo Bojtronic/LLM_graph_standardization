@@ -1,8 +1,132 @@
 #include "model_runner.h"
 #include <iostream>
+#include <ggml-cuda.h>
+#include <ggml-cpu.h>
 
-bool run_llama_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams& params) {
+// Variables globales para el estado del chat
+static std::vector<int> g_context_tokens;
+static gguf_context* g_tokenizer_ctx = nullptr;
+static int g_eos_token = -1;
+
+void run_interactive_chat(const ModelParams& params) {
+    std::cout << "\n=== Modo Chat Interactivo ===\n";
+    std::cout << "Escribe tu mensaje (o 'salir' para terminar):\n\n";
+
+    //GraphData graph_data = gguf_graph_data(gguf_init_from_file(params.model_path.c_str(), {}), params.model_path.c_str());
+    
+    // Inicializar el contexto del tokenizador (simplificado)
+    g_tokenizer_ctx = gguf_init_from_file(params.model_path.c_str(), {});
+    if (!g_tokenizer_ctx) {
+        std::cerr << "Error al cargar el tokenizador del modelo\n";
+        return;
+    }
+
+    // Obtener token EOS del modelo
+    int eos_key = gguf_find_key(g_tokenizer_ctx, "tokenizer.eos_token_id");
+    if (eos_key != -1) {
+        g_eos_token = gguf_get_val_u32(g_tokenizer_ctx, eos_key);
+    }
+
+    char input_buffer[1024];
+    while (true) {
+        std::cout << "> ";
+        std::cin.getline(input_buffer, sizeof(input_buffer));
+        std::string user_input(input_buffer);
+
+        if (user_input == "salir" || user_input == "exit") {
+            break;
+        }
+
+        // 1. Tokenizar entrada del usuario
+        std::vector<int> input_tokens = tokenize_input(user_input, g_tokenizer_ctx);
+        
+        // Agregar al contexto (incluyendo tokens previos)
+        g_context_tokens.insert(g_context_tokens.end(), input_tokens.begin(), input_tokens.end());
+        
+        // Limitar al contexto máximo
+        if (g_context_tokens.size() > params.n_ctx) {
+            int excess = g_context_tokens.size() - params.n_ctx;
+            g_context_tokens.erase(g_context_tokens.begin(), g_context_tokens.begin() + excess);
+        }
+
+        // 2. Generar respuesta
+        std::vector<int> response_tokens;
+        bool generating = true;
+        ggml_backend_t backend = params.use_gpu ? ggml_backend_cuda_init(0) : ggml_backend_cpu_init();
+        ggml_context* ctx = ggml_init({.mem_size = 16 * 1024 * 1024});
+
+        std::cout << "Asistente: ";
+        while (generating && response_tokens.size() < params.n_ctx) {
+            // Ejecutar el modelo con el contexto actual
+            ggml_tensor* logits_tensor = run_llama_model(ctx, backend, params, g_context_tokens);
+            
+            // Muestrear próximo token
+            float* logits = ggml_get_data_f32(logits_tensor);
+            int next_token = sample_next_token(logits, /* n_vocab */ 32000, 
+                                            params.temperature, params.top_p, params.top_k);
+            
+            // Verificar fin de generación
+            if (next_token == g_eos_token) {
+                generating = false;
+            } else {
+                response_tokens.push_back(next_token);
+                g_context_tokens.push_back(next_token);
+                
+                // Mostrar token decodificado
+                std::cout << decode_output({next_token}, g_tokenizer_ctx) << std::flush;
+            }
+        }
+        std::cout << "\n\n";
+
+        ggml_free(ctx);
+        ggml_backend_free(backend);
+    }
+
+    gguf_free(g_tokenizer_ctx);
+    g_tokenizer_ctx = nullptr;
+    g_context_tokens.clear();
+}
+
+std::vector<int> tokenize_input(const std::string& input, const gguf_context* ctx) {
+    // Implementación simplificada - en realidad necesitarías el tokenizador real
+    // Esto es solo un ejemplo conceptual
+    std::vector<int> tokens;
+    
+    // Buscar el tokenizador en el contexto GGUF (simplificado)
+    int tokenizer_key = gguf_find_key(ctx, "tokenizer");
+    if (tokenizer_key != -1) {
+        // En una implementación real, usarías la API del tokenizador aquí
+        tokens.push_back(123); // Token ficticio para demostración
+    }
+    
+    return tokens;
+}
+
+std::string decode_output(const std::vector<int>& tokens, const gguf_context* ctx) {
+    // Implementación simplificada - deberías usar el tokenizador real
+    std::string result;
+    
+    for (int token : tokens) {
+        // En una implementación real, usarías el tokenizador para decodificar
+        result += " palabra" + std::to_string(token); // Ejemplo ficticio
+    }
+    
+    return result;
+}
+
+int sample_next_token(const float* logits, int n_vocab, float temperature, float top_p, int top_k) {
+    // Implementación simplificada de muestreo
+    // En una implementación real usarías softmax con temperatura, top-p, etc.
+    return 0; // Token ficticio
+}
+
+bool run_llama_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams& params, const std::vector<int>& input_tokens) {
     std::cout << "Initializing LLaMA model..." << std::endl;
+
+    // Convertir input_tokens a tensor GGML
+    ggml_tensor* tokens_tensor = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, input_tokens.size());
+    memcpy(tokens_tensor->data, input_tokens.data(), input_tokens.size() * sizeof(int));
+
     
     GraphData graph_data = gguf_graph_data(gguf_init_from_file(params.model_path.c_str(), {}), params.model_path.c_str());
     
@@ -48,9 +172,19 @@ bool run_llama_model(ggml_context* ctx, ggml_backend_t backend, const ModelParam
     ggml_build_forward_expand(gf, output);
     ggml_backend_graph_compute(backend, gf);
     
+
+    // Retornar los logits del último token
+    // return output; // ggml_tensor* con los logits
+    
     std::cout << "LLaMA model execution completed" << std::endl;
     return true;
 }
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 bool run_vit_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams& params) {
     std::cout << "Initializing ViT model..." << std::endl;
@@ -93,6 +227,12 @@ bool run_vit_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams&
     std::cout << "ViT model execution completed" << std::endl;
     return true;
 }
+
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 
 bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams& params) {
     std::cout << "Initializing Whisper model..." << std::endl;
