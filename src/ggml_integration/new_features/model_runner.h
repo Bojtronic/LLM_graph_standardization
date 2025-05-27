@@ -9,7 +9,7 @@
 
 
 // Declaraciones de funciones para ejecutar los modelos
-bool run_llama_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams& params);
+ggml_tensor* run_llama_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams& params);
 bool run_vit_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams& params);
 bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams& params);
 
