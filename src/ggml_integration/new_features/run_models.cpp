@@ -189,7 +189,7 @@ void configure_model_specific_params(ModelParams& params, const gguf_context* ct
     }
 }
 
-void run_model(const ModelParams& params) {
+void run_model(const ModelParams& params, GraphData graph_data) {
     ggml_backend_t backend = NULL;
     if (params.use_gpu) {
         backend = ggml_backend_cuda_init(0);
@@ -210,11 +210,12 @@ void run_model(const ModelParams& params) {
     
     struct ggml_context* ctx = ggml_init(ggml_params);
     bool success = false;
-    
+
+
     switch (params.type) {
         case MODEL_TYPE_LLAMA:
             std::cout << "Running LLaMA model...\n";
-            success = run_llama_model(ctx, backend, params);
+            success = run_llama_model(ctx, backend, params, graph_data);
             break;
         case MODEL_TYPE_VIT:
             std::cout << "Running ViT model...\n";

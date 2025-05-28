@@ -23,12 +23,16 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    
+    GraphData graph_data = gguf_graph_data(ctx_gguf, params.model_path.c_str());
+    
+
     // Detect model type and configure parameters
     params.type = detect_model_type(ctx_gguf);
     configure_model_specific_params(params, ctx_gguf);
     
     // Run the appropriate model
-    run_model(params);
+    run_model(params, graph_data);
 
     // Cleanup
     gguf_free(ctx_gguf);

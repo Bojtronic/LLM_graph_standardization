@@ -8,57 +8,102 @@
 #include <algorithm>
 #include <random>
 #include <numeric>
+#include <sstream>
 
 // Variables globales para el estado del chat
 static std::vector<int> g_context_tokens;
-static gguf_context* g_tokenizer_ctx = nullptr;
 static int g_eos_token = -1;
 
-// Función para tokenizar entrada
-std::vector<int> tokenize_input(const std::string& input, const gguf_context* ctx) {
-    std::vector<int> tokens;
+std::vector<int> tokenize_input(const std::string& input, const GraphData& graph_data) {
+    // Buscar el vocabulario en los metadatos
+    const GGUFMetadata* tokens_meta = graph_data.find_metadata("tokenizer.ggml.tokens");
     
-    // En una implementación real, usarías el tokenizador del modelo
-    // Esto es un placeholder que simula tokenización básica
-    const char* text = input.c_str();
-    size_t text_len = input.length();
-    
-    // Buscar vocabulario en el contexto GGUF
-    int vocab_key = gguf_find_key(ctx, "tokenizer.ggml.vocab");
-    if (vocab_key == -1) {
-        std::cerr << "No se encontró el vocabulario en el modelo\n";
-        return tokens;
+    if (!tokens_meta || tokens_meta->type != GGUF_TYPE_ARRAY || 
+        !std::holds_alternative<std::vector<std::string>>(tokens_meta->array.data)) {
+        std::cerr << "No se encontró el vocabulario, usando tokenización básica\n";
+        return tokenize_basic(input);
     }
-    
-    // Simulación de tokenización (dividir por espacios)
-    std::string current_word;
-    for (size_t i = 0; i <= text_len; ++i) {
-        if (i == text_len || isspace(text[i])) {
-            if (!current_word.empty()) {
-                // Hash simple para simular ID de token
-                int token_id = 0;
-                for (char c : current_word) {
-                    token_id = token_id * 256 + c;
-                }
-                token_id = abs(token_id) % 32000; // Limitamos al tamaño del vocabulario
-                tokens.push_back(token_id);
-                current_word.clear();
+
+    const auto& vocab = std::get<std::vector<std::string>>(tokens_meta->array.data);
+    std::vector<int> tokens;
+    size_t pos = 0;
+
+    while (pos < input.size()) {
+        size_t longest_match = 0;
+        int best_token = -1;
+
+        // Buscar el token más largo que coincida
+        for (int i = 0; i < vocab.size(); ++i) {
+            const std::string& token = vocab[i];
+            if (token.empty()) continue;
+
+            if (input.compare(pos, token.size(), token) == 0 && token.size() > longest_match) {
+                longest_match = token.size();
+                best_token = i;
             }
-        } else {
-            current_word += text[i];
         }
+
+        if (best_token != -1) {
+            tokens.push_back(best_token);
+            pos += longest_match;
+        } else {
+            // Token desconocido - usar token UNK si existe
+            const GGUFMetadata* unk_meta = graph_data.find_metadata("tokenizer.ggml.unknown_token_id");
+            int unk_token = unk_meta ? unk_meta->value.i32 : 0;
+            tokens.push_back(unk_token);
+            pos++; // Avanzar un carácter
+        }
+    }
+
+    return tokens;
+}
+
+// Función de respaldo para tokenización básica
+std::vector<int> tokenize_basic(const std::string& input) {
+    std::vector<int> tokens;
+    std::istringstream iss(input);
+    std::string word;
+    
+    while (iss >> word) {
+        // Hash simple para generar un ID de token
+        int token_id = 0;
+        for (char c : word) {
+            token_id = token_id * 256 + c;
+        }
+        token_id = abs(token_id) % 32000;
+        tokens.push_back(token_id);
     }
     
     return tokens;
 }
 
-// Función para decodificar tokens a texto
-std::string decode_output(const std::vector<int>& tokens, const gguf_context* ctx) {
+std::string decode_output(const std::vector<int>& tokens, const GraphData& graph_data) {
+    // Buscar el vocabulario en los metadatos
+    const GGUFMetadata* tokens_meta = graph_data.find_metadata("tokenizer.ggml.tokens");
+    
+    if (!tokens_meta || tokens_meta->type != GGUF_TYPE_ARRAY || 
+        !std::holds_alternative<std::vector<std::string>>(tokens_meta->array.data)) {
+        return decode_basic(tokens);
+    }
+
+    const auto& vocab = std::get<std::vector<std::string>>(tokens_meta->array.data);
     std::string output;
     
-    // En una implementación real, usarías el detokenizador del modelo
     for (int token : tokens) {
-        // Simulación de detokenización
+        if (token >= 0 && token < vocab.size()) {
+            output += vocab[token];
+        } else {
+            output += "[UNK:" + std::to_string(token) + "]";
+        }
+    }
+    
+    return output;
+}
+
+// Función de respaldo para decodificación básica
+std::string decode_basic(const std::vector<int>& tokens) {
+    std::string output;
+    for (int token : tokens) {
         char c = token % 256;
         if (isprint(c)) {
             output += c;
@@ -66,122 +111,52 @@ std::string decode_output(const std::vector<int>& tokens, const gguf_context* ct
             output += "[" + std::to_string(token) + "]";
         }
     }
-    
     return output;
 }
 
-// Función para muestrear el siguiente token
-int sample_next_token(const float* logits, int n_vocab, float temperature, float top_p, int top_k) {
-    std::vector<float> probs(logits, logits + n_vocab);
+void run_interactive_chat(const ModelParams& params, GraphData graph_data) {
     
-    // Aplicar temperatura
-    if (temperature != 1.0f) {
-        for (float& p : probs) {
-            p /= temperature;
-        }
-    }
+    /*
+    // Cargar los datos del modelo GGUF en el grafo
+    GraphData graph_data = gguf_graph_data(gguf_init_from_file(params.model_path.c_str(), {}), params.model_path.c_str());
     
-    // Softmax
-    float max_logit = *std::max_element(probs.begin(), probs.end());
-    float sum_exp = 0.0f;
-    for (float& p : probs) {
-        p = expf(p - max_logit);
-        sum_exp += p;
-    }
-    for (float& p : probs) {
-        p /= sum_exp;
-    }
-    
-    // Top-k sampling
-    if (top_k > 0 && top_k < n_vocab) {
-        std::vector<int> indices(n_vocab);
-        std::iota(indices.begin(), indices.end(), 0);
-        std::partial_sort(indices.begin(), indices.begin() + top_k, indices.end(),
-            [&probs](int a, int b) { return probs[a] > probs[b]; });
-        
-        // Cero las probabilidades fuera del top-k
-        for (int i = top_k; i < n_vocab; ++i) {
-            probs[indices[i]] = 0.0f;
-        }
-    }
-    
-    // Nucleus sampling (top-p)
-    if (top_p < 1.0f) {
-        std::vector<int> indices(n_vocab);
-        std::iota(indices.begin(), indices.end(), 0);
-        std::sort(indices.begin(), indices.end(),
-            [&probs](int a, int b) { return probs[a] > probs[b]; });
-        
-        float cumulative = 0.0f;
-        int last_idx = 0;
-        for (int i = 0; i < n_vocab; ++i) {
-            cumulative += probs[indices[i]];
-            if (cumulative >= top_p) {
-                last_idx = i;
-                break;
-            }
-        }
-        
-        // Cero las probabilidades fuera del top-p
-        for (int i = last_idx + 1; i < n_vocab; ++i) {
-            probs[indices[i]] = 0.0f;
-        }
-    }
-    
-    // Remuestrear para normalizar
-    sum_exp = std::accumulate(probs.begin(), probs.end(), 0.0f);
-    for (float& p : probs) {
-        p /= sum_exp;
-    }
-    
-    // Muestrear según las probabilidades
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::discrete_distribution<> dist(probs.begin(), probs.end());
-    return dist(gen);
-}
-
-// Función principal del chat interactivo
-void run_interactive_chat(const ModelParams& params) {
-    std::cout << "\n=== Modo Chat Interactivo ===\n";
-    std::cout << "Escribe tu mensaje (o 'salir' para terminar):\n\n";
-
-    // Inicializar el contexto del tokenizador
-    g_tokenizer_ctx = gguf_init_from_file(params.model_path.c_str(), {});
-    if (!g_tokenizer_ctx) {
-        std::cerr << "Error al cargar el modelo\n";
+    if (graph_data.tensors.empty()) {
+        std::cerr << "Error: No se cargaron tensores del modelo\n";
         return;
     }
+    */
 
-    // Obtener token EOS del modelo
-    int eos_key = gguf_find_key(g_tokenizer_ctx, "tokenizer.eos_token_id");
-    if (eos_key != -1) {
-        g_eos_token = gguf_get_val_u32(g_tokenizer_ctx, eos_key);
-    } else {
-        g_eos_token = 2; // Valor por defecto común
-    }
+    // Configurar tokens especiales desde los metadatos
+    const GGUFMetadata* eos_meta = graph_data.find_metadata("tokenizer.ggml.eos_token_id");
+    const GGUFMetadata* bos_meta = graph_data.find_metadata("tokenizer.ggml.bos_token_id");
+    
+    g_eos_token = eos_meta ? eos_meta->value.i32 : 2;
+    int bos_token = bos_meta ? bos_meta->value.i32 : 1;
 
     // Inicializar backend
     ggml_backend_t backend = params.use_gpu ? ggml_backend_cuda_init(0) : ggml_backend_cpu_init();
     if (!backend) {
         std::cerr << "Error al inicializar el backend\n";
-        gguf_free(g_tokenizer_ctx);
         return;
     }
 
+    // Bucle principal del chat
     char input_buffer[1024];
     while (true) {
         std::cout << "> ";
         std::cin.getline(input_buffer, sizeof(input_buffer));
         std::string user_input(input_buffer);
 
-        if (user_input == "salir" || user_input == "exit") {
-            break;
+        if (user_input == "salir" || user_input == "exit") break;
+
+        // 1. Tokenizar la entrada del usuario
+        std::vector<int> input_tokens = tokenize_input(user_input, graph_data);
+        
+        // Agregar token BOS al inicio si está configurado
+        if (bos_token != -1) {
+            input_tokens.insert(input_tokens.begin(), bos_token);
         }
 
-        // 1. Tokenizar entrada del usuario
-        std::vector<int> input_tokens = tokenize_input(user_input, g_tokenizer_ctx);
-        
         // Agregar al contexto (incluyendo tokens previos)
         g_context_tokens.insert(g_context_tokens.end(), input_tokens.begin(), input_tokens.end());
         
@@ -199,7 +174,7 @@ void run_interactive_chat(const ModelParams& params) {
         std::cout << "Asistente: ";
         while (generating && response_tokens.size() < params.n_ctx) {
             // Ejecutar el modelo con el contexto actual
-            ggml_tensor* logits_tensor = run_llama_model(ctx, backend, params, g_context_tokens);
+            ggml_tensor* logits_tensor = run_llama_model(ctx, backend, params, graph_data, g_context_tokens);
             
             if (!logits_tensor) {
                 std::cerr << "Error en la ejecución del modelo\n";
@@ -219,7 +194,7 @@ void run_interactive_chat(const ModelParams& params) {
                 g_context_tokens.push_back(next_token);
                 
                 // Mostrar token decodificado
-                std::cout << decode_output({next_token}, g_tokenizer_ctx) << std::flush;
+                std::cout << decode_output({next_token}, graph_data) << std::flush;
             }
         }
         std::cout << "\n\n";
@@ -228,168 +203,65 @@ void run_interactive_chat(const ModelParams& params) {
     }
 
     ggml_backend_free(backend);
-    gguf_free(g_tokenizer_ctx);
-    g_tokenizer_ctx = nullptr;
     g_context_tokens.clear();
 }
 
 ggml_tensor* get_layer_tensor(ggml_context* ctx, const GraphData& graph_data, const std::string& name) {
-    for (const auto& tensor : graph_data.tensors) {
-        if (tensor.name.find(name) != std::string::npos) {
-            ggml_tensor* t = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, tensor.dims[0], tensor.dims[1]);
-            // Aquí deberías cargar los pesos reales del tensor
-            return t;
-        }
-    }
-    return nullptr;
-}
-
-ggml_tensor* run_llama_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams& params, const std::vector<int>& input_tokens) {
-    // 1. Convertir tokens de entrada a tensor GGML
-    ggml_tensor* tokens_tensor = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, input_tokens.size());
-    if (!tokens_tensor) {
-        std::cerr << "Error al crear tensor de tokens" << std::endl;
+    const GGUFTensor* tensor_info = graph_data.find_tensor(name);
+    if (!tensor_info) {
+        std::cerr << "Tensor no encontrado: " << name << std::endl;
         return nullptr;
     }
-    memcpy(tokens_tensor->data, input_tokens.data(), input_tokens.size() * sizeof(int));
-
-    // 2. Cargar pesos del modelo
-    GraphData graph_data = gguf_graph_data(g_tokenizer_ctx, params.model_path.c_str());
     
-    // 3. Obtener embeddings de tokens
-    ggml_tensor* token_embd = nullptr;
-    for (const auto& tensor : graph_data.tensors) {
-        if (tensor.name.find("token_embd") != std::string::npos) {
-            token_embd = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, tensor.dims[0], tensor.dims[1]);
-            if (!token_embd) {
-                std::cerr << "Error al crear tensor de embeddings" << std::endl;
-                return nullptr;
+    // Crear tensor GGML con las dimensiones correctas
+    ggml_tensor* tensor = nullptr;
+    switch (tensor_info->n_dims) {
+        case 1:
+            tensor = ggml_new_tensor_1d(ctx, tensor_info->type, tensor_info->dims[0]);
+            break;
+        case 2:
+            tensor = ggml_new_tensor_2d(ctx, tensor_info->type, tensor_info->dims[0], tensor_info->dims[1]);
+            break;
+        default:
+            std::cerr << "Dimensionalidad no soportada para " << name << std::endl;
+            return nullptr;
+    }
+    
+    // Copiar datos según el tipo
+    switch (tensor_info->type) {
+        case GGML_TYPE_F32: {
+            if (const auto* data = tensor_info->get_data<float>()) {
+                memcpy(tensor->data, data->data(), data->size() * sizeof(float));
             }
-            // Aquí deberías cargar los pesos reales del embedding
-            // ggml_set_tensor_data(token_embd, tensor.data);
             break;
         }
+        case GGML_TYPE_Q2_K:
+        case GGML_TYPE_Q3_K: {
+            if (const auto* data = tensor_info->get_data<uint8_t>()) {
+                memcpy(tensor->data, data->data(), data->size());
+            }
+            break;
+        }
+        default:
+            std::cerr << "Tipo de tensor no soportado: " << ggml_type_name(tensor_info->type) << std::endl;
+            return nullptr;
     }
     
-    if (!token_embd) {
-        std::cerr << "Error: Token embeddings not found in model" << std::endl;
-        return nullptr;
-    }
-    
-    // 4. Obtener embeddings para los tokens de entrada
-    ggml_tensor* current = ggml_get_rows(ctx, token_embd, tokens_tensor);
-    if (!current) {
-        std::cerr << "Error en ggml_get_rows" << std::endl;
-        return nullptr;
-    }
-    
-    // 5. Aplicar codificación posicional
-    current = positional_encoding(ctx, current, "rope", current->ne[0], 0, 10000.0f);
-    if (!current) {
-        std::cerr << "Error en positional_encoding" << std::endl;
-        return nullptr;
-    }
-    
-    // 6. Procesar a través de las capas del transformer
-    int num_layers = 32; // Deberías obtener esto del modelo
-    for (int i = 0; i < num_layers; ++i) {
-        // Atención
-        ggml_tensor* attn_norm = layer_norm(ctx, current, true, 1e-5f);
-        if (!attn_norm) {
-            std::cerr << "Error en layer_norm (attn)" << std::endl;
-            return nullptr;
-        }
-        
-        // Obtener pesos para Q, K, V de esta capa
-        ggml_tensor* Wq = get_layer_tensor(ctx, graph_data, "blk." + std::to_string(i) + ".attn_q");
-        ggml_tensor* Wk = get_layer_tensor(ctx, graph_data, "blk." + std::to_string(i) + ".attn_k");
-        ggml_tensor* Wv = get_layer_tensor(ctx, graph_data, "blk." + std::to_string(i) + ".attn_v");
-        
-        if (!Wq || !Wk || !Wv) {
-            std::cerr << "Error al obtener pesos de atención" << std::endl;
-            return nullptr;
-        }
-        
-        ggml_tensor* q = ggml_mul_mat(ctx, Wq, attn_norm);
-        ggml_tensor* k = ggml_mul_mat(ctx, Wk, attn_norm);
-        ggml_tensor* v = ggml_mul_mat(ctx, Wv, attn_norm);
-        
-        if (!q || !k || !v) {
-            std::cerr << "Error en multiplicación de matrices (Q/K/V)" << std::endl;
-            return nullptr;
-        }
-        
-        ggml_tensor* attention = multi_head_attention(ctx, q, k, v, true);
-        if (!attention) {
-            std::cerr << "Error en multi_head_attention" << std::endl;
-            return nullptr;
-        }
-        
-        current = ggml_add(ctx, current, attention);
-        if (!current) {
-            std::cerr << "Error en suma residual (attention)" << std::endl;
-            return nullptr;
-        }
-        
-        // Feed Forward
-        ggml_tensor* ffn_norm = layer_norm(ctx, current, true, 1e-5f);
-        if (!ffn_norm) {
-            std::cerr << "Error en layer_norm (ffn)" << std::endl;
-            return nullptr;
-        }
-        
-        ggml_tensor* W1 = get_layer_tensor(ctx, graph_data, "blk." + std::to_string(i) + ".ffn_up");
-        ggml_tensor* W2 = get_layer_tensor(ctx, graph_data, "blk." + std::to_string(i) + ".ffn_gate");
-        ggml_tensor* W3 = get_layer_tensor(ctx, graph_data, "blk." + std::to_string(i) + ".ffn_down");
-        
-        if (!W1 || !W2 || !W3) {
-            std::cerr << "Error al obtener pesos FFN" << std::endl;
-            return nullptr;
-        }
-        
-        ggml_tensor* ffn_gate = feed_forward(ctx, ffn_norm, W2, nullptr, "swiglu");
-        ggml_tensor* ffn_up = feed_forward(ctx, ffn_norm, W1, nullptr, "silu");
-        ggml_tensor* ffn_down = feed_forward(ctx, ggml_mul(ctx, ffn_gate, ffn_up), W3, nullptr, "linear");
-        
-        if (!ffn_gate || !ffn_up || !ffn_down) {
-            std::cerr << "Error en capas FFN" << std::endl;
-            return nullptr;
-        }
-        
-        current = ggml_add(ctx, current, ffn_down);
-        if (!current) {
-            std::cerr << "Error en suma residual (ffn)" << std::endl;
-            return nullptr;
-        }
-    }
-    
-    // 7. Normalización final
-    current = layer_norm(ctx, current, true, 1e-5f);
-    if (!current) {
-        std::cerr << "Error en layer_norm final" << std::endl;
-        return nullptr;
-    }
-    
-    // 8. Proyección a vocabulario
-    ggml_tensor* output_proj = get_layer_tensor(ctx, graph_data, "output");
-    if (!output_proj) {
-        std::cerr << "Error al obtener proyección de salida" << std::endl;
-        return nullptr;
-    }
-    
-    ggml_tensor* output = ggml_mul_mat(ctx, output_proj, current);
-    if (!output) {
-        std::cerr << "Error en multiplicación de matrices final" << std::endl;
-        return nullptr;
-    }
-    
-    // 9. Ejecutar el grafo computacional
-    struct ggml_cgraph* gf = ggml_new_graph(ctx);
-    ggml_build_forward_expand(gf, output);
-    ggml_backend_graph_compute(backend, gf);
-    
-    return output;
+    return tensor;
 }
+
+ggml_tensor* layer_norm(ggml_context* ctx, ggml_tensor* input, ggml_tensor* weight, ggml_tensor* bias, float eps) {
+    if (!weight) {
+        std::cerr << "Error: Peso de normalización es NULL\n";
+        return nullptr;
+    }
+    
+    // Normalización RMS (sin bias)
+    ggml_tensor* rms = ggml_rms_norm(ctx, input, eps);
+    return ggml_mul(ctx, rms, weight);
+}
+
+
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
