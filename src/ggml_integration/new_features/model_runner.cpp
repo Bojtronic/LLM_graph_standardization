@@ -116,16 +116,6 @@ std::string decode_basic(const std::vector<int>& tokens) {
 
 void run_interactive_chat(const ModelParams& params, GraphData graph_data) {
     
-    /*
-    // Cargar los datos del modelo GGUF en el grafo
-    GraphData graph_data = gguf_graph_data(gguf_init_from_file(params.model_path.c_str(), {}), params.model_path.c_str());
-    
-    if (graph_data.tensors.empty()) {
-        std::cerr << "Error: No se cargaron tensores del modelo\n";
-        return;
-    }
-    */
-
     // Configurar tokens especiales desde los metadatos
     const GGUFMetadata* eos_meta = graph_data.find_metadata("tokenizer.ggml.eos_token_id");
     const GGUFMetadata* bos_meta = graph_data.find_metadata("tokenizer.ggml.bos_token_id");
@@ -261,6 +251,206 @@ ggml_tensor* layer_norm(ggml_context* ctx, ggml_tensor* input, ggml_tensor* weig
     return ggml_mul(ctx, rms, weight);
 }
 
+int sample_next_token(const float* logits, int n_vocab, 
+                     float temperature, float top_p, int top_k) {
+    std::vector<float> probs(logits, logits + n_vocab);
+    
+    // 1. Aplicar temperatura
+    if (temperature != 1.0f) {
+        for (float& prob : probs) {
+            prob /= temperature;
+        }
+    }
+
+    // 2. Softmax para convertir logits a probabilidades
+    float max_logit = *std::max_element(probs.begin(), probs.end());
+    float sum = 0.0f;
+    for (float& prob : probs) {
+        prob = expf(prob - max_logit);
+        sum += prob;
+    }
+    for (float& prob : probs) {
+        prob /= sum;
+    }
+
+    // 3. Filtrado top-k
+    if (top_k > 0 && top_k < n_vocab) {
+        std::vector<std::pair<float, int>> prob_index;
+        for (int i = 0; i < n_vocab; ++i) {
+            prob_index.emplace_back(probs[i], i);
+        }
+
+        // Ordenar descendente por probabilidad
+        std::partial_sort(
+            prob_index.begin(),
+            prob_index.begin() + top_k,
+            prob_index.end(),
+            [](const std::pair<float, int>& a, const std::pair<float, int>& b) {
+                return a.first > b.first;
+            });
+
+        // Cero las probabilidades fuera del top-k
+        for (int i = top_k; i < n_vocab; ++i) {
+            probs[prob_index[i].second] = 0.0f;
+        }
+
+        // Renormalizar
+        float sum = std::accumulate(probs.begin(), probs.end(), 0.0f);
+        for (float& prob : probs) {
+            prob /= sum;
+        }
+    }
+
+    // 4. Muestreo top-p (nucleus sampling)
+    if (top_p > 0.0f && top_p < 1.0f) {
+        std::vector<std::pair<float, int>> prob_index;
+        for (int i = 0; i < n_vocab; ++i) {
+            prob_index.emplace_back(probs[i], i);
+        }
+
+        // Ordenar descendente por probabilidad
+        std::sort(
+            prob_index.begin(),
+            prob_index.end(),
+            [](const std::pair<float, int>& a, const std::pair<float, int>& b) {
+                return a.first > b.first;
+            });
+
+        float cumulative_prob = 0.0f;
+        int last_idx = n_vocab - 1;
+        for (int i = 0; i < n_vocab; ++i) {
+            cumulative_prob += prob_index[i].first;
+            if (cumulative_prob >= top_p) {
+                last_idx = i;
+                break;
+            }
+        }
+
+        // Cero las probabilidades fuera del top-p
+        for (int i = last_idx + 1; i < n_vocab; ++i) {
+            probs[prob_index[i].second] = 0.0f;
+        }
+
+        // Renormalizar
+        float sum = std::accumulate(probs.begin(), probs.end(), 0.0f);
+        for (float& prob : probs) {
+            prob /= sum;
+        }
+    }
+
+    // 5. Muestreo de la distribución
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::discrete_distribution<> dist(probs.begin(), probs.end());
+    return dist(gen);
+}
+
+ggml_tensor* run_llama_model(ggml_context* ctx, 
+                            ggml_backend_t backend,
+                            const ModelParams& params,
+                            const GraphData& graph_data,
+                            const std::vector<int>& input_tokens) {
+    // 1. Convertir input_tokens a tensor GGML
+    ggml_tensor* tokens_tensor = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, input_tokens.size());
+    if (!tokens_tensor) {
+        std::cerr << "Error al crear tensor de tokens" << std::endl;
+        return nullptr;
+    }
+    memcpy(tokens_tensor->data, input_tokens.data(), input_tokens.size() * sizeof(int));
+
+    // 2. Obtener embeddings de tokens
+    ggml_tensor* token_embd = get_layer_tensor(ctx, graph_data, "token_embd.weight");
+    if (!token_embd) {
+        std::cerr << "Error: No se pudo cargar token embeddings" << std::endl;
+        return nullptr;
+    }
+
+    // 3. Aplicar embeddings
+    ggml_tensor* current = ggml_get_rows(ctx, token_embd, tokens_tensor);
+
+    // 4. Aplicar codificación posicional (RoPE)
+    current = ggml_rope(ctx, current, input_tokens.size(), params.n_embd / params.n_head, 0, 10000.0f);
+
+    // 5. Procesar cada capa del transformer
+    for (int i = 0; i < params.n_layers; ++i) {
+        std::string layer_prefix = "blk." + std::to_string(i) + ".";
+
+        // Atención
+        ggml_tensor* attn_norm = get_layer_tensor(ctx, graph_data, layer_prefix + "attn_norm.weight");
+        ggml_tensor* attn_norm_out = layer_norm(ctx, current, attn_norm, nullptr, params.norm_eps);
+
+        // Proyecciones Q, K, V
+        ggml_tensor* q_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn_q.weight");
+        ggml_tensor* k_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn_k.weight");
+        ggml_tensor* v_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn_v.weight");
+
+        ggml_tensor* q = ggml_mul_mat(ctx, q_proj, attn_norm_out);
+        ggml_tensor* k = ggml_mul_mat(ctx, k_proj, attn_norm_out);
+        ggml_tensor* v = ggml_mul_mat(ctx, v_proj, attn_norm_out);
+
+        // Aplicar RoPE a Q y K
+        q = ggml_rope(ctx, q, input_tokens.size(), params.n_embd / params.n_head, 0, 10000.0f);
+        k = ggml_rope(ctx, k, input_tokens.size(), params.n_embd / params.n_head, 0, 10000.0f);
+
+        // Atención multi-head
+        ggml_tensor* attn_scores = ggml_scale_inplace(
+            ctx,
+            ggml_soft_max(
+                ctx,
+                ggml_mul_mat(
+                    ctx,
+                    q,
+                    ggml_cont(ctx, ggml_transpose(ctx, k))
+                )
+            ),
+            1.0f / sqrtf(params.n_embd / params.n_head)
+        );
+
+        ggml_tensor* attn_output = ggml_mul_mat(ctx, attn_scores, v);
+
+        // Proyección de salida
+        ggml_tensor* attn_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn_proj.weight");
+        attn_output = ggml_mul_mat(ctx, attn_proj, attn_output);
+
+        // Conexión residual
+        current = ggml_add(ctx, current, attn_output);
+
+        // Feed Forward Network
+        ggml_tensor* ffn_norm = get_layer_tensor(ctx, graph_data, layer_prefix + "ffn_norm.weight");
+        ggml_tensor* ffn_norm_out = layer_norm(ctx, current, ffn_norm, nullptr, params.norm_eps);
+
+        // Capas FFN (SwishGLU)
+        ggml_tensor* ffn_gate = get_layer_tensor(ctx, graph_data, layer_prefix + "ffn_gate.weight");
+        ggml_tensor* ffn_up = get_layer_tensor(ctx, graph_data, layer_prefix + "ffn_up.weight");
+        ggml_tensor* ffn_down = get_layer_tensor(ctx, graph_data, layer_prefix + "ffn_down.weight");
+
+        ggml_tensor* gate = ggml_silu(ctx, ggml_mul_mat(ctx, ffn_gate, ffn_norm_out));
+        ggml_tensor* up = ggml_mul_mat(ctx, ffn_up, ffn_norm_out);
+        ggml_tensor* ffn_out = ggml_mul_mat(ctx, ffn_down, ggml_mul(ctx, gate, up));
+
+        // Conexión residual
+        current = ggml_add(ctx, current, ffn_out);
+    }
+
+    // 6. Normalización final
+    ggml_tensor* output_norm = get_layer_tensor(ctx, graph_data, "output_norm.weight");
+    current = layer_norm(ctx, current, output_norm, nullptr, params.norm_eps);
+
+    // 7. Capa de salida (LM head)
+    ggml_tensor* output_weight = get_layer_tensor(ctx, graph_data, "output.weight");
+    ggml_tensor* logits = ggml_mul_mat(ctx, output_weight, current);
+
+    // 8. Construir y ejecutar el gráfico de computación
+    struct ggml_cgraph* gf = ggml_new_graph(ctx);
+    ggml_build_forward_expand(gf, logits);
+    ggml_backend_graph_compute(backend, gf);
+
+    // 9. Retornar solo los logits del último token
+    ggml_tensor* last_logits = ggml_view_1d(ctx, logits, params.n_vocab, 
+                                          (input_tokens.size() - 1) * params.n_vocab * sizeof(float));
+
+    return last_logits;
+}
 
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
