@@ -43,16 +43,17 @@ struct ModelParams {
 };
 
 // Módulos comunes
-ggml_tensor * multi_head_attention(ggml_context * ctx, ggml_tensor * Q, ggml_tensor * K, ggml_tensor * V, bool is_causal);
-ggml_tensor * layer_norm(ggml_context * ctx, ggml_tensor * input, bool use_rmsnorm, float eps);
+ggml_tensor * multi_head_attention(ggml_context* ctx, ggml_tensor* Q, ggml_tensor* K, ggml_tensor* V, bool is_causal, ggml_tensor* attention_mask = nullptr, float scale_factor = 0.0f);
+ggml_tensor * layer_norm(ggml_context* ctx, ggml_tensor* input, ggml_tensor* weight, ggml_tensor* bias, bool use_rmsnorm, float eps);
 ggml_tensor * ggml_swiglu(ggml_context * ctx, ggml_tensor * x);
 ggml_tensor * feed_forward(ggml_context * ctx, ggml_tensor * input, ggml_tensor * weight, ggml_tensor * bias, const char * activation);
 void ggml_sin_f32(int n, float * dest, const float * src);
 void ggml_cos_f32(int n, float * dest, const float * src);
 ggml_tensor * ggml_pow(ggml_context * ctx, ggml_tensor * a, ggml_tensor * b);
-ggml_tensor * positional_encoding(ggml_context * ctx, ggml_tensor * input, const char * type, int n_dims, int mode, float base);
+ggml_tensor * positional_encoding(ggml_context * ctx, ggml_tensor * input, const char * type, int n_dims, int mode, float base, int n_ctx);
 
 // Módulos específicos
+ggml_tensor* llama_ffn(ggml_context* ctx, ggml_tensor* input, ggml_tensor* gate_proj, ggml_tensor* up_proj, ggml_tensor* down_proj);
 ggml_tensor * cross_attention(ggml_context * ctx, ggml_tensor * Q, ggml_tensor * K, ggml_tensor * V);
 ggml_tensor * class_token(ggml_context * ctx, ggml_tensor * input);
 ggml_tensor * multi_head_latent_attention(ggml_context * ctx, ggml_tensor * Q, ggml_tensor * K, ggml_tensor * V, 

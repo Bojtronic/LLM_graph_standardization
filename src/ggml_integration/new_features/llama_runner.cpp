@@ -188,7 +188,7 @@ void run_interactive_chat(const ModelParams& params, GraphData graph_data) {
                 break;
             }
             
-/////////////////////////////////// REVISAR ////////////////////////////////            
+/////////////////////////////////// el tamaño del vocabulario hay que ponerlo como una variable ////////////////////////////////            
             // Muestrear próximo token
             float* logits = ggml_get_data_f32(logits_tensor);
             int next_token = sample_next_token(logits, /* n_vocab */ 32000, 
@@ -247,6 +247,7 @@ ggml_tensor* get_layer_tensor(ggml_context* ctx, const GraphData& graph_data, co
 
 /////////////////////////////////////////////////////////////////////////////////////
         //verificar si los datos cuantizados se pueden almacenar en 8 bits
+        // en el link se explican las cuantizaciones
         // https://huggingface.co/docs/hub/gguf
         case GGML_TYPE_Q2_K:
         case GGML_TYPE_Q3_K: {
@@ -265,16 +266,6 @@ ggml_tensor* get_layer_tensor(ggml_context* ctx, const GraphData& graph_data, co
     return tensor;
 }
 
-ggml_tensor* layer_norm(ggml_context* ctx, ggml_tensor* input, ggml_tensor* weight, ggml_tensor* bias, float eps) {
-    if (!weight) {
-        std::cerr << "Error: Peso de normalización es NULL\n";
-        return nullptr;
-    }
-    
-    // Normalización RMS (sin bias)
-    ggml_tensor* rms = ggml_rms_norm(ctx, input, eps);
-    return ggml_mul(ctx, rms, weight);
-}
 
 int sample_next_token(const float* logits, int n_vocab, 
                      float temperature, float top_p, int top_k) {
@@ -375,6 +366,17 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
                             const ModelParams& params,
                             const GraphData& graph_data,
                             const std::vector<int>& input_tokens) {
+
+    int n_embd = graph_data.find_metadata("llama.embedding_length")->value.i32;
+    int n_head = graph_data.find_metadata("llama.attention.head_count")->value.i32;
+    int n_layers = graph_data.find_metadata("llama.block_count")->value.i32;
+    float norm_eps = graph_data.find_metadata("llama.attention.layer_norm_rms_epsilon")->value.f32;
+    int n_ctx = graph_data.find_metadata("llama.context_length")->value.i32;
+    ggml_tensor* token_embd = get_layer_tensor(ctx, graph_data, "token_embd.weight");
+    int n_vocab = token_embd->ne[1];  // La segunda dimensión es el tamaño del vocabulario
+
+
+
     // 1. Convertir input_tokens a tensor GGML
     ggml_tensor* tokens_tensor = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, input_tokens.size());
     if (!tokens_tensor) {
@@ -419,15 +421,31 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
     ggml_tensor* current = ggml_get_rows(ctx, token_embd, tokens_tensor);
 
     // 4. Aplicar codificación posicional (RoPE)
-    current = ggml_rope(ctx, current, input_tokens.size(), params.n_embd / params.n_head, 0, 10000.0f);
+    //current = ggml_rope(ctx, current, input_tokens.size(), params.n_embd / params.n_head, 0, 10000.0f);
+
+    current = positional_encoding(
+        ctx,
+        current,
+        "rope",                     // Tipo RoPE
+        n_embd / n_head, // Dimensiones por cabeza
+        0,                          // Modo (0 para implementación estándar)
+        10000.0f,                   // Base de frecuencia
+        n_ctx                // Longitud máxima del contexto
+    );
+
+    if (!current) {
+        std::cerr << "Error al aplicar codificación posicional" << std::endl;
+        return nullptr;
+    }
 
     // 5. Procesar cada capa del transformer
-    for (int i = 0; i < params.n_layers; ++i) {
+    for (int i = 0; i < n_layers; ++i) {
         std::string layer_prefix = "blk." + std::to_string(i) + ".";
 
         // Atención
-        ggml_tensor* attn_norm = get_layer_tensor(ctx, graph_data, layer_prefix + "attn_norm.weight");
-        ggml_tensor* attn_norm_out = layer_norm(ctx, current, attn_norm, nullptr, params.norm_eps);
+        ggml_tensor* attn_norm_weight = get_layer_tensor(ctx, graph_data, layer_prefix + "attn_norm.weight");
+        ggml_tensor* attn_norm_out = layer_norm(ctx, current, attn_norm_weight, nullptr, true, norm_eps);
+    
 
         // Proyecciones Q, K, V
         ggml_tensor* q_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn_q.weight");
@@ -439,24 +457,27 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
         ggml_tensor* v = ggml_mul_mat(ctx, v_proj, attn_norm_out);
 
         // Aplicar RoPE a Q y K
-        q = ggml_rope(ctx, q, input_tokens.size(), params.n_embd / params.n_head, 0, 10000.0f);
-        k = ggml_rope(ctx, k, input_tokens.size(), params.n_embd / params.n_head, 0, 10000.0f);
+        q = positional_encoding(ctx, q, "rope", n_embd / n_head, 0, 10000.0f, n_ctx);
+        k = positional_encoding(ctx, k, "rope", n_embd / n_head, 0, 10000.0f, n_ctx);
 
-        // Atención multi-head
-        ggml_tensor* attn_scores = ggml_scale_inplace(
+        // Reorganizar tensores para atención multi-cabeza
+        int head_dim = n_embd / n_head;
+        q = ggml_reshape_3d(ctx, q, head_dim, n_head, input_tokens.size());
+        k = ggml_reshape_3d(ctx, k, head_dim, n_head, input_tokens.size());
+        v = ggml_reshape_3d(ctx, v, head_dim, n_head, input_tokens.size());
+
+        // Aplicar atención multi-cabeza
+        ggml_tensor* attn_output = multi_head_attention(
             ctx,
-            ggml_soft_max(
-                ctx,
-                ggml_mul_mat(
-                    ctx,
-                    q,
-                    ggml_cont(ctx, ggml_transpose(ctx, k))
-                )
-            ),
-            1.0f / sqrtf(params.n_embd / params.n_head)
+            ggml_cont(ctx, ggml_permute(ctx, q, 0, 2, 1, 3)),  // [seq_len, n_head, head_dim]
+            ggml_cont(ctx, ggml_permute(ctx, k, 0, 2, 1, 3)),  // [seq_len, n_head, head_dim]
+            ggml_cont(ctx, ggml_permute(ctx, v, 0, 2, 1, 3)),  // [seq_len, n_head, head_dim]
+            true  // is_causal para modelos autoregresivos
         );
 
-        ggml_tensor* attn_output = ggml_mul_mat(ctx, attn_scores, v);
+        // Reorganizar la salida
+        attn_output = ggml_permute(ctx, attn_output, 0, 2, 1, 3);
+        attn_output = ggml_reshape_2d(ctx, attn_output, n_embd, input_tokens.size());
 
         // Proyección de salida
         ggml_tensor* attn_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn_proj.weight");
@@ -466,25 +487,23 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
         current = ggml_add(ctx, current, attn_output);
 
         // Feed Forward Network
-        ggml_tensor* ffn_norm = get_layer_tensor(ctx, graph_data, layer_prefix + "ffn_norm.weight");
-        ggml_tensor* ffn_norm_out = layer_norm(ctx, current, ffn_norm, nullptr, params.norm_eps);
+        ggml_tensor* ffn_norm_weight = get_layer_tensor(ctx, graph_data, layer_prefix + "ffn_norm.weight");
+        ggml_tensor* ffn_norm_out = layer_norm(ctx, current, ffn_norm_weight, nullptr, true, norm_eps);
 
         // Capas FFN (SwishGLU)
         ggml_tensor* ffn_gate = get_layer_tensor(ctx, graph_data, layer_prefix + "ffn_gate.weight");
         ggml_tensor* ffn_up = get_layer_tensor(ctx, graph_data, layer_prefix + "ffn_up.weight");
         ggml_tensor* ffn_down = get_layer_tensor(ctx, graph_data, layer_prefix + "ffn_down.weight");
 
-        ggml_tensor* gate = ggml_silu(ctx, ggml_mul_mat(ctx, ffn_gate, ffn_norm_out));
-        ggml_tensor* up = ggml_mul_mat(ctx, ffn_up, ffn_norm_out);
-        ggml_tensor* ffn_out = ggml_mul_mat(ctx, ffn_down, ggml_mul(ctx, gate, up));
+        ggml_tensor* ffn_out = llama_ffn(ctx, ffn_norm_out, ffn_gate, ffn_up, ffn_down);
 
-        // Conexión residual
+        // Conexión residual final
         current = ggml_add(ctx, current, ffn_out);
     }
 
     // 6. Normalización final
     ggml_tensor* output_norm = get_layer_tensor(ctx, graph_data, "output_norm.weight");
-    current = layer_norm(ctx, current, output_norm, nullptr, params.norm_eps);
+    current = layer_norm(ctx, current, output_norm, nullptr, true, norm_eps);
 
     // 7. Capa de salida (LM head)
     ggml_tensor* output_weight = get_layer_tensor(ctx, graph_data, "output.weight");
@@ -496,8 +515,8 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
     ggml_backend_graph_compute(backend, gf);
 
     // 9. Retornar solo los logits del último token
-    ggml_tensor* last_logits = ggml_view_1d(ctx, logits, params.n_vocab, 
-                                          (input_tokens.size() - 1) * params.n_vocab * sizeof(float));
+    ggml_tensor* last_logits = ggml_view_1d(ctx, logits, n_vocab, 
+                                        (input_tokens.size() - 1) * n_vocab * sizeof(float));
 
     return last_logits;
 }

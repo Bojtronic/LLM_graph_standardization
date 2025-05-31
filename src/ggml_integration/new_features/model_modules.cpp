@@ -1,51 +1,95 @@
 #include "model_modules.h"
 #include <cmath>
 #include <cstring>
+#include <iostream>
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // MÓDULOS COMUNES /////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// Módulo de Atención Multi-Cabezal
-// Parámetros:
-// - ctx: Contexto de GGML.
-// - Q, K, V: Tensores de Consulta, Clave y Valor.
-// - is_causal: Indica si se debe aplicar una máscara causal (para modelos como LLAMA 2 y Whisper).
-// Retorna:
-// - Un tensor que representa el resultado de la atención multi-cabezal
-ggml_tensor * multi_head_attention(ggml_context * ctx, ggml_tensor * Q, ggml_tensor * K, ggml_tensor * V, bool is_causal) {
-    // Calcular las matrices de atención
-    ggml_tensor * scores = ggml_mul_mat(ctx, Q, K); // Q * K^T
-    scores = ggml_scale(ctx, scores, 1.0f / sqrtf((float)Q->ne[0])); // Escalar por sqrt(d_k)
-
-    // Aplicar máscara causal (si es necesario)
-    if (is_causal) {
-        scores = ggml_diag_mask_inf(ctx, scores, 0); // Máscara causal
+/**
+ * Módulo de Atención Multi-Cabezal mejorado
+ * 
+ * @param ctx Contexto GGML para la asignación de memoria
+ * @param Q Tensor de Consulta [seq_len, num_heads, head_dim]
+ * @param K Tensor de Clave [seq_len, num_heads, head_dim]
+ * @param V Tensor de Valor [seq_len, num_heads, head_dim]
+ * @param is_causal Si es true, aplica máscara causal para evitar lookahead
+ * @param attention_mask Tensor opcional para máscara de atención personalizada (NULL si no se usa)
+ * @param scale_factor Factor de escalado opcional (si es 0, se usa 1/sqrt(d_k))
+ * @return Tensor con el resultado de la atención [seq_len, num_heads, head_dim]
+ */
+ggml_tensor* multi_head_attention(ggml_context* ctx, ggml_tensor* Q, ggml_tensor* K, ggml_tensor* V, bool is_causal, ggml_tensor* attention_mask = nullptr, float scale_factor = 0.0f) {
+    // 1. Verificación de dimensiones
+    if (Q->ne[0] != K->ne[0] || Q->ne[0] != V->ne[0] || 
+        Q->ne[1] != K->ne[1] || Q->ne[1] != V->ne[1]) {
+        std::cerr << "Error: Dimensiones incompatibles en Q, K, V" << std::endl;
+        return nullptr;
     }
 
-    // Aplicar softmax para obtener los pesos de atención
-    ggml_tensor * attn_weights = ggml_soft_max(ctx, scores);
+    // 2. Calcular puntuaciones de atención QK^T
+    ggml_tensor* K_transposed = ggml_permute(ctx, K, 0, 2, 1, 3);  // Transponer K
+    ggml_tensor* scores = ggml_mul_mat(ctx, Q, K_transposed);
 
-    // Multiplicar por los valores (V)
-    ggml_tensor * output = ggml_mul_mat(ctx, attn_weights, V);
+    // 3. Escalar las puntuaciones
+    const float scaling_factor = (scale_factor == 0.0f) ? 
+        1.0f / sqrtf(static_cast<float>(Q->ne[0])) : scale_factor;
+    scores = ggml_scale(ctx, scores, scaling_factor);
+
+    // 4. Aplicar máscaras de atención
+    if (is_causal) {
+        scores = ggml_diag_mask_inf(ctx, scores, 0);  // Máscara causal estándar
+    }
+    
+    if (attention_mask != nullptr) {
+        scores = ggml_add(ctx, scores, attention_mask);  // Máscara adicional proporcionada
+    }
+
+    // 5. Aplicar softmax para obtener pesos de atención
+    ggml_tensor* attn_weights = ggml_soft_max(ctx, scores);
+
+    // 6. Multiplicar por los valores V
+    ggml_tensor* output = ggml_mul_mat(ctx, attn_weights, V);
 
     return output;
 }
 
-// Módulo de Conexiones Residuales
-// Parámetros:
-// - ctx: Contexto de GGML.
-// - input: Tensor de entrada.
-// - use_rmsnorm: Indica si se debe usar RMSNorm (para LLAMA 2 y DeepSeek) o LayerNorm (para ViT y Whisper).
-// - eps:(épsilon) Valor pequeño añadido al denominador en la normalización para evitar divisiones por cero y garantizar estabilidad numérica. Típicamente un valor como 1e-5 o 1e-6.
-// Retorna:
-// - Un tensor normalizado utilizando RMSNorm o LayerNorm, dependiendo del valor de `use_rmsnorm`.
-ggml_tensor * layer_norm(ggml_context * ctx, ggml_tensor * input, bool use_rmsnorm,  float eps) {
+/**
+ * Normalización de capa mejorada para múltiples arquitecturas
+ * 
+ * @param ctx Contexto GGML
+ * @param input Tensor de entrada
+ * @param weight Tensor de pesos (scale) - puede ser NULL para normalización sin parámetros
+ * @param bias Tensor de biases (shift) - puede ser NULL si no se usan biases
+ * @param use_rmsnorm true para RMSNorm (LLaMA), false para LayerNorm (ViT, Whisper)
+ * @param eps Valor épsilon para estabilidad numérica
+ * @return Tensor normalizado
+ */
+ggml_tensor* layer_norm(ggml_context* ctx, ggml_tensor* input, ggml_tensor* weight, ggml_tensor* bias, bool use_rmsnorm, float eps) {
+    //Aplicar normalización base
+    ggml_tensor* normalized;
     if (use_rmsnorm) {
-        return ggml_rms_norm(ctx, input, eps); // RMSNorm
+        // RMSNorm (usado en LLaMA, DeepSeek)
+        normalized = ggml_rms_norm(ctx, input, eps);
     } else {
-        return ggml_norm(ctx, input, eps); // LayerNorm
+        // LayerNorm clásico (usado en ViT, Whisper)
+        normalized = ggml_norm(ctx, input, eps);
+        
+        // Para LayerNorm, añadir el centrado (restar media)
+        ggml_tensor* mean = ggml_mean(ctx, input);
+        normalized = ggml_sub(ctx, input, mean);
     }
+
+    //Aplicar transformación affine (scale y shift) si hay parámetros
+    if (weight) {
+        normalized = ggml_mul(ctx, normalized, weight);
+    }
+
+    if (bias && !use_rmsnorm) { // RMSNorm normalmente no usa bias
+        normalized = ggml_add(ctx, normalized, bias);
+    }
+
+    return normalized;
 }
 
 // Función que implementa la activación SwiGLU (Swish-Gated Linear Unit).
@@ -144,7 +188,7 @@ ggml_tensor * ggml_pow(ggml_context * ctx, ggml_tensor * a, ggml_tensor * b) {
 // - base: Base para el cálculo de frecuencias en la codificación sinusoidal.
 // Retorna:
 // - Un tensor con la codificación posicional aplicada.
-ggml_tensor * positional_encoding(ggml_context * ctx, ggml_tensor * input, const char * type, int n_dims, int mode, float base) {
+ggml_tensor * positional_encoding(ggml_context * ctx, ggml_tensor * input, const char * type, int n_dims, int mode, float base, int n_ctx) {
     // Codificación tipo "rope" (Rotary Positional Embedding).
     if (strcmp(type, "rope") == 0) {
         // Crea un tensor para almacenar las posiciones (índices de secuencia).
@@ -155,6 +199,7 @@ ggml_tensor * positional_encoding(ggml_context * ctx, ggml_tensor * input, const
 
         // Aplica la codificación "rope" al tensor de entrada usando las posiciones.
         return ggml_rope(ctx, input, positions, n_dims, mode);
+         
     }
     // Codificación tipo "sinusoidal".
     else if (strcmp(type, "sinusoidal") == 0) {
@@ -217,6 +262,17 @@ ggml_tensor * positional_encoding(ggml_context * ctx, ggml_tensor * input, const
 // MÓDULOS ESPECÍFICOS /////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+/**
+ * Módulo Feed-Forward Network para LLaMA (SwiGLU)
+ */
+ggml_tensor* llama_ffn(ggml_context* ctx, ggml_tensor* input, ggml_tensor* gate_proj, ggml_tensor* up_proj, ggml_tensor* down_proj) {
+    // Implementación SwiGLU
+    ggml_tensor* gate = feed_forward(ctx, input, gate_proj, nullptr, "swiglu");
+    ggml_tensor* up = ggml_mul_mat(ctx, up_proj, input);
+    return ggml_mul_mat(ctx, down_proj, ggml_mul(ctx, gate, up));
+}
+
+
 // Módulo de Cross-Attention (Whisper)
 // Parámetros:
 // - ctx: Contexto de GGML.
@@ -228,7 +284,7 @@ ggml_tensor * cross_attention(ggml_context * ctx, ggml_tensor * Q, ggml_tensor *
     // El parámetro "false" indica que no se aplicará una máscara causal.
     // La máscara causal se usa en modelos autoregresivos para evitar que las posiciones futuras influyan en las actuales.
     // En este caso, no es necesaria porque la atención cruzada no es autoregresiva.
-    return multi_head_attention(ctx, Q, K, V, false);
+    return multi_head_attention(ctx, Q, K, V, false, nullptr, 0.0f);
 }
 
 // Módulo de Token de Clase (ViT)
@@ -251,7 +307,7 @@ ggml_tensor * class_token(ggml_context * ctx, ggml_tensor * input) {
 }
 
 
-// Módulo de Atención Multi-Cabeza Latente
+// Módulo de Atención Multi-Cabeza Latente (DeepSeek)
 // Parámetros:
 // - ctx: Contexto de GGML para manejar la memoria y los tensores.
 // - Q: Tensor de Consulta (Query).
