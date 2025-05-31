@@ -400,6 +400,7 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
 
         /////////////////////////////////////
 
+        /*
         // Leer datos del tensor
         std::ifstream file(fname, std::ios::binary);
         if (file)
@@ -465,12 +466,12 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
             }
         }
 
-
+        */
         ////////////////////////////////////
 
 
         // Marcar que no cargamos los datos
-        //tensor.data = std::vector<uint8_t>();
+        tensor.data = std::vector<uint8_t>();
 
         // Inferir operación y conexiones
         tensor.op = infer_operation(tensor.name);
@@ -609,6 +610,8 @@ void print_graph_data(const GraphData& graph_data, const char *output_filename) 
         return (type >= GGUF_TYPE_UINT8 && type <= GGUF_TYPE_ARRAY) ? names[type] : "UNKNOWN";
     };
 
+    const size_t max_elements = 20; // Mostrar solo los primeros 20 elementos
+
     // Escribir el encabezado
     outfile << "\n**************************************************************\n";
     outfile << "**************************  HEADER  **************************\n";
@@ -676,7 +679,7 @@ void print_graph_data(const GraphData& graph_data, const char *output_filename) 
                 if (md.array.type == GGUF_TYPE_STRING) {
                     if (const auto* strs = std::get_if<std::vector<std::string>>(&md.array.data)) {
                         outfile << "Primeros strings: [";
-                        for (size_t i = 0; i < std::min(strs->size(), 5UL); ++i) {
+                        for (size_t i = 0; i < std::min(strs->size(), max_elements); ++i) {
                             outfile << "\"" << (*strs)[i] << "\" ";
                         }
                         outfile << "...]\n";
@@ -686,7 +689,7 @@ void print_graph_data(const GraphData& graph_data, const char *output_filename) 
                     if (const auto* vals = std::get_if<std::vector<float>>(&md.array.data)) {
                         outfile << std::fixed << std::setprecision(6);
                         outfile << "Primeros valores: [";
-                        for (size_t i = 0; i < std::min(vals->size(), 5UL); ++i) {
+                        for (size_t i = 0; i < std::min(vals->size(), max_elements); ++i) {
                             outfile << (*vals)[i] << " ";
                         }
                         outfile << "...]\n";
@@ -696,7 +699,7 @@ void print_graph_data(const GraphData& graph_data, const char *output_filename) 
                 else if (md.array.type == GGUF_TYPE_INT32) {
                     if (const auto* vals = std::get_if<std::vector<int32_t>>(&md.array.data)) {
                         outfile << "Primeros valores: [";
-                        for (size_t i = 0; i < std::min(vals->size(), 5UL); ++i) {
+                        for (size_t i = 0; i < std::min(vals->size(), max_elements); ++i) {
                             outfile << (*vals)[i] << " ";
                         }
                         outfile << "...]\n";
@@ -705,7 +708,7 @@ void print_graph_data(const GraphData& graph_data, const char *output_filename) 
                 else if (md.array.type == GGUF_TYPE_UINT8) {
                     if (const auto* vals = std::get_if<std::vector<uint8_t>>(&md.array.data)) {
                         outfile << "Primeros valores: [";
-                        for (size_t i = 0; i < std::min(vals->size(), 5UL); ++i) {
+                        for (size_t i = 0; i < std::min(vals->size(), max_elements); ++i) {
                             outfile << static_cast<int>((*vals)[i]) << " ";
                         }
                         outfile << "...]\n";
@@ -743,7 +746,7 @@ void print_graph_data(const GraphData& graph_data, const char *output_filename) 
         // Mostrar los primeros elementos del tensor según su tipo
         outfile << "Datos (primeros elementos): ";
         
-        const size_t max_elements = 5; // Mostrar solo los primeros 5 elementos
+        
         
         switch (tensor.type) {
             case GGML_TYPE_F32:
@@ -820,16 +823,14 @@ void print_graph_data(const GraphData& graph_data, const char *output_filename) 
 }
 
 
-int main()
-{
+int main() {
     const char *fname = "llama-2-7b.Q2_K.gguf";
-    const char *output_filename = "graph.dot";
+    const char *output_filename = "output.txt";
 
     // Verifica si el nombre del archivo es válido
-    if (!fname)
-    {
+    if (!fname) {
         std::cerr << "Nombre de archivo inválido (NULL)\n";
-        return 1; // Código de error
+        return 1;  // Código de error
     }
 
     struct ggml_context *ctx = NULL;
@@ -840,18 +841,17 @@ int main()
 
     // Intenta cargar el archivo GGUF
     struct gguf_context *ctx_gguf = gguf_init_from_file(fname, params);
-    if (!ctx_gguf)
-    {
+    if (!ctx_gguf) {
         std::cerr << "No se pudo cargar el archivo GGUF '" << fname << "'\n";
-        return 1; // Código de error
+        return 1;  // Código de error
     }
 
     GraphData graph_data = gguf_graph_data(ctx_gguf, fname);
-    
-    //save_dot_graph(graph_data, output_filename);
+
+    print_graph_data(graph_data, output_filename);
 
     // Liberar el contexto GGUF cuando ya no sea necesario
     gguf_free(ctx_gguf);
 
-    return 0; // Éxito
+    return 0;  // Éxito
 }

@@ -331,10 +331,9 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
             case GGUF_TYPE_STRING:
 
             {
-                // Marcar que hay un array de strings no procesado (analizar si se necesita o si se puede omitir)
+                // Marcar que hay un array de strings no procesado
                 //md.array.data = std::vector<std::string>(); // Vacío
 
-                
                 std::vector<std::string> strings;
                 strings.reserve(md.array.size);
                 for (size_t j = 0; j < md.array.size; ++j) {
