@@ -1,4 +1,4 @@
-#include "model_runner.h"
+#include "llama_runner.h"
 #include <iostream>
 #include <ggml-cuda.h>
 #include <ggml-cpu.h>
@@ -116,6 +116,15 @@ std::string decode_basic(const std::vector<int>& tokens) {
 
 void run_interactive_chat(const ModelParams& params, GraphData graph_data) {
     
+    int vocab_size = 0;
+
+    const GGUFMetadata* n_ctx = graph_data.find_metadata("llama.context_length");
+    const GGUFMetadata* tokens_meta = graph_data.find_metadata("tokenizer.ggml.tokens");
+    if (tokens_meta && tokens_meta->type == GGUF_TYPE_ARRAY) {
+        const auto& vocab = std::get<std::vector<std::string>>(tokens_meta->array.data);
+        int vocab_size = vocab.size();
+    }
+
     // Configurar tokens especiales desde los metadatos
     const GGUFMetadata* eos_meta = graph_data.find_metadata("tokenizer.ggml.eos_token_id");
     const GGUFMetadata* bos_meta = graph_data.find_metadata("tokenizer.ggml.bos_token_id");
@@ -151,10 +160,16 @@ void run_interactive_chat(const ModelParams& params, GraphData graph_data) {
         g_context_tokens.insert(g_context_tokens.end(), input_tokens.begin(), input_tokens.end());
         
         // Limitar al contexto máximo
-        if (g_context_tokens.size() > params.n_ctx) {
+        if (g_context_tokens.size() > n_ctx->value.i32) {
+            int excess = g_context_tokens.size() - n_ctx->value.i32;
+            g_context_tokens.erase(g_context_tokens.begin(), g_context_tokens.begin() + excess);
+        }
+        /*
+        if (g_context_tokens.size() > params.n_ctx) {   
             int excess = g_context_tokens.size() - params.n_ctx;
             g_context_tokens.erase(g_context_tokens.begin(), g_context_tokens.begin() + excess);
         }
+        */
 
         // 2. Generar respuesta
         std::vector<int> response_tokens;
@@ -162,7 +177,9 @@ void run_interactive_chat(const ModelParams& params, GraphData graph_data) {
         ggml_context* ctx = ggml_init({.mem_size = 16 * 1024 * 1024});
 
         std::cout << "Asistente: ";
-        while (generating && response_tokens.size() < params.n_ctx) {
+        
+        while (generating && response_tokens.size() < n_ctx->value.i32) {
+        //while (generating && response_tokens.size() < params.n_ctx) {
             // Ejecutar el modelo con el contexto actual
             ggml_tensor* logits_tensor = run_llama_model(ctx, backend, params, graph_data, g_context_tokens);
             
@@ -171,11 +188,13 @@ void run_interactive_chat(const ModelParams& params, GraphData graph_data) {
                 break;
             }
             
+/////////////////////////////////// REVISAR ////////////////////////////////            
             // Muestrear próximo token
             float* logits = ggml_get_data_f32(logits_tensor);
             int next_token = sample_next_token(logits, /* n_vocab */ 32000, 
                                             params.temperature, params.top_p, params.top_k);
-            
+///////////////////////////////////////////////////////////////////////////            
+
             // Verificar fin de generación
             if (next_token == g_eos_token) {
                 generating = false;
@@ -225,6 +244,10 @@ ggml_tensor* get_layer_tensor(ggml_context* ctx, const GraphData& graph_data, co
             }
             break;
         }
+
+/////////////////////////////////////////////////////////////////////////////////////
+        //verificar si los datos cuantizados se pueden almacenar en 8 bits
+        // https://huggingface.co/docs/hub/gguf
         case GGML_TYPE_Q2_K:
         case GGML_TYPE_Q3_K: {
             if (const auto* data = tensor_info->get_data<uint8_t>()) {
@@ -232,6 +255,8 @@ ggml_tensor* get_layer_tensor(ggml_context* ctx, const GraphData& graph_data, co
             }
             break;
         }
+/////////////////////////////////////////////////////////////////////////////////////
+
         default:
             std::cerr << "Tipo de tensor no soportado: " << ggml_type_name(tensor_info->type) << std::endl;
             return nullptr;
@@ -365,7 +390,32 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
         return nullptr;
     }
 
+
     // 3. Aplicar embeddings
+
+    /*
+    if (*std::max_element(input_tokens.begin(), input_tokens.end()) >= token_embd->ne[1]) {
+        std::cerr << "Índice de token excede el tamaño del vocabulario" << std::endl;
+        return nullptr;
+    }
+    */
+
+
+    // a=token_embd   b=tokens_tensor
+    // a->ne[2] == b->ne[1]:
+    // La dimensión 2 de a (por ejemplo, número de "bloques" o canales) debe coincidir con la dimensión 1 de b.
+    // b->ne[3] == 1:
+    // La cuarta dimensión de b debe ser 1 (es decir, b es un tensor 3D o inferior).
+    // b->type == GGML_TYPE_I32:
+    // Los índices en b deben ser enteros de 32 bits (I32).
+
+
+    // de los siguientes comentario hay dudas, pueden ser incorrectos
+    // token_embd[a][b]
+    // tokens_tensor[x][y]
+    // b debe ser igual a y 
+    // La cuarta dimensión de tokens_tensor debe ser 1 (es decir, b es un tensor 3D o inferior).
+    // Los índices en tokens_tensor deben ser enteros de 32 bits (I32).
     ggml_tensor* current = ggml_get_rows(ctx, token_embd, tokens_tensor);
 
     // 4. Aplicar codificación posicional (RoPE)
@@ -450,121 +500,5 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
                                           (input_tokens.size() - 1) * params.n_vocab * sizeof(float));
 
     return last_logits;
-}
-
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-bool run_vit_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams& params) {
-    std::cout << "Initializing ViT model..." << std::endl;
-    
-    GraphData graph_data = gguf_graph_data(gguf_init_from_file(params.model_path.c_str(), {}), params.model_path.c_str());
-    
-    ggml_tensor* input_image = ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 
-                                               params.image_size, params.image_size, 3, 1);
-    
-    ggml_tensor* patch_emb = ggml_conv_2d(ctx, /* patch_proj */, input_image, 16, 16, 0, 0);
-    patch_emb = ggml_reshape_3d(ctx, patch_emb, patch_emb->ne[0], patch_emb->ne[1], patch_emb->ne[2]*patch_emb->ne[3]);
-    
-    ggml_tensor* embeddings = class_token(ctx, patch_emb);
-    embeddings = positional_encoding(ctx, embeddings, "sinusoidal", embeddings->ne[0], 0, 10000.0f);
-    
-    for (int i = 0; i < /* num_layers from metadata */; ++i) {
-        ggml_tensor* norm1 = layer_norm(ctx, embeddings, false, 1e-6f);
-        ggml_tensor* q = ggml_mul_mat(ctx, /* Wq */, norm1);
-        ggml_tensor* k = ggml_mul_mat(ctx, /* Wk */, norm1);
-        ggml_tensor* v = ggml_mul_mat(ctx, /* Wv */, norm1);
-        
-        ggml_tensor* attention = multi_head_attention(ctx, q, k, v, false);
-        attention = ggml_mul_mat(ctx, /* out_proj */, attention);
-        embeddings = ggml_add(ctx, embeddings, attention);
-        
-        ggml_tensor* norm2 = layer_norm(ctx, embeddings, false, 1e-6f);
-        ggml_tensor* mlp = feed_forward(ctx, norm2, /* fc1 */, /* b1 */, "gelu");
-        mlp = feed_forward(ctx, mlp, /* fc2 */, /* b2 */, "linear");
-        embeddings = ggml_add(ctx, embeddings, mlp);
-    }
-    
-    ggml_tensor* cls_output = ggml_view_1d(ctx, embeddings, embeddings->ne[0], 0);
-    cls_output = layer_norm(ctx, cls_output, false, 1e-6f);
-    ggml_tensor* output = ggml_mul_mat(ctx, /* classifier */, cls_output);
-    
-    struct ggml_cgraph* gf = ggml_new_graph(ctx);
-    ggml_build_forward_expand(gf, output);
-    ggml_backend_graph_compute(backend, gf);
-    
-    std::cout << "ViT model execution completed" << std::endl;
-    return true;
-}
-
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams& params) {
-    std::cout << "Initializing Whisper model..." << std::endl;
-    
-    GraphData graph_data = gguf_graph_data(gguf_init_from_file(params.model_path.c_str(), {}), params.model_path.c_str());
-    
-    ggml_tensor* input_audio = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, params.n_mels, params.n_audio_ctx, 1);
-    
-    ggml_tensor* audio_emb = ggml_conv_1d(ctx, /* conv1 */, input_audio, 1, 1, 0);
-    audio_emb = ggml_gelu(ctx, audio_emb);
-    audio_emb = ggml_conv_1d(ctx, /* conv2 */, audio_emb, 1, 1, 0);
-    audio_emb = ggml_gelu(ctx, audio_emb);
-    
-    audio_emb = positional_encoding(ctx, audio_emb, "sinusoidal", audio_emb->ne[0], 0, 10000.0f);
-    
-    for (int i = 0; i < /* num_encoder_layers */; ++i) {
-        ggml_tensor* norm1 = layer_norm(ctx, audio_emb, false, 1e-5f);
-        ggml_tensor* q = ggml_mul_mat(ctx, /* Wq */, norm1);
-        ggml_tensor* k = ggml_mul_mat(ctx, /* Wk */, norm1);
-        ggml_tensor* v = ggml_mul_mat(ctx, /* Wv */, norm1);
-        
-        ggml_tensor* self_attn = multi_head_attention(ctx, q, k, v, false);
-        self_attn = ggml_mul_mat(ctx, /* out_proj */, self_attn);
-        audio_emb = ggml_add(ctx, audio_emb, self_attn);
-        
-        ggml_tensor* norm2 = layer_norm(ctx, audio_emb, false, 1e-5f);
-        ggml_tensor* mlp = feed_forward(ctx, norm2, /* fc1 */, /* b1 */, "gelu");
-        mlp = feed_forward(ctx, mlp, /* fc2 */, /* b2 */, "linear");
-        audio_emb = ggml_add(ctx, audio_emb, mlp);
-    }
-    
-    ggml_tensor* tokens = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, params.n_audio_ctx);
-    ggml_tensor* token_emb = ggml_get_rows(ctx, /* token_emb */, tokens);
-    
-    for (int i = 0; i < /* num_decoder_layers */; ++i) {
-        ggml_tensor* norm1 = layer_norm(ctx, token_emb, false, 1e-5f);
-        ggml_tensor* q = ggml_mul_mat(ctx, /* Wq */, norm1);
-        ggml_tensor* k = ggml_mul_mat(ctx, /* Wk */, norm1);
-        ggml_tensor* v = ggml_mul_mat(ctx, /* Wv */, norm1);
-        
-        ggml_tensor* self_attn = multi_head_attention(ctx, q, k, v, true);
-        token_emb = ggml_add(ctx, token_emb, self_attn);
-        
-        ggml_tensor* norm2 = layer_norm(ctx, token_emb, false, 1e-5f);
-        ggml_tensor* cross_attn = cross_attention(ctx, norm2, audio_emb, audio_emb);
-        token_emb = ggml_add(ctx, token_emb, cross_attn);
-        
-        ggml_tensor* norm3 = layer_norm(ctx, token_emb, false, 1e-5f);
-        ggml_tensor* mlp = feed_forward(ctx, norm3, /* fc1 */, /* b1 */, "gelu");
-        mlp = feed_forward(ctx, mlp, /* fc2 */, /* b2 */, "linear");
-        token_emb = ggml_add(ctx, token_emb, mlp);
-    }
-    
-    ggml_tensor* output = ggml_mul_mat(ctx, /* lm_head */, token_emb);
-    
-    struct ggml_cgraph* gf = ggml_new_graph(ctx);
-    ggml_build_forward_expand(gf, output);
-    ggml_backend_graph_compute(backend, gf);
-    
-    std::cout << "Whisper model execution completed" << std::endl;
-    return true;
 }
 

@@ -332,21 +332,17 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
 
             {
                 // Marcar que hay un array de strings no procesado (analizar si se necesita o si se puede omitir)
-                md.array.data = std::vector<std::string>(); // Vacío
+                //md.array.data = std::vector<std::string>(); // Vacío
 
-                /*
-                // Esto accede a datos internos de GGUF y puede ser inseguro.
-                const auto &item = ctx->kv[i];
+                
                 std::vector<std::string> strings;
-                strings.reserve(item.size);
-
-                // Se asume que los strings están almacenados como punteros consecutivos
-                const char **str_ptrs = reinterpret_cast<const char**>(item.data.data());
-                for (size_t j = 0; j < item.size; ++j) {
-                    strings.emplace_back(str_ptrs[j] ? str_ptrs[j] : "");
+                strings.reserve(md.array.size);
+                for (size_t j = 0; j < md.array.size; ++j) {
+                    const char* str = gguf_get_arr_str(ctx, i, j);
+                    strings.emplace_back(str ? str : "");
                 }
                 md.array.data = strings;
-                */
+                
                 break;
             }
 
