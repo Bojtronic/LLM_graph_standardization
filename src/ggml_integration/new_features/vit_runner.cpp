@@ -10,41 +10,172 @@
 #include <numeric>
 #include <sstream>
 
+ggml_tensor* get_layer_tensor(ggml_context* ctx, const GraphData& graph_data, const std::string& name) {
+    const GGUFTensor* tensor_info = graph_data.find_tensor(name);
+    if (!tensor_info) {
+        std::cerr << "Tensor no encontrado: " << name << std::endl;
+        return nullptr;
+    }
+    
+    // Crear tensor GGML con las dimensiones correctas
+    ggml_tensor* tensor = nullptr;
+    switch (tensor_info->n_dims) {
+        case 1:
+            tensor = ggml_new_tensor_1d(ctx, tensor_info->type, tensor_info->dims[0]);
+            break;
+        case 2:
+            tensor = ggml_new_tensor_2d(ctx, tensor_info->type, tensor_info->dims[0], tensor_info->dims[1]);
+            break;
+        default:
+            std::cerr << "Dimensionalidad no soportada para " << name << std::endl;
+            return nullptr;
+    }
+    
+    // Copiar datos según el tipo
+    switch (tensor_info->type) {
+        case GGML_TYPE_F32: {
+            if (const auto* data = tensor_info->get_data<float>()) {
+                memcpy(tensor->data, data->data(), data->size() * sizeof(float));
+            }
+            break;
+        }
 
-bool run_vit_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams& params) {
+/////////////////////////////////////////////////////////////////////////////////////
+        //verificar si los datos cuantizados se pueden almacenar en 8 bits
+        // en el link se explican las cuantizaciones
+        // https://huggingface.co/docs/hub/gguf
+        case GGML_TYPE_Q2_K:
+        case GGML_TYPE_Q3_K: {
+            if (const auto* data = tensor_info->get_data<uint8_t>()) {
+                memcpy(tensor->data, data->data(), data->size());
+            }
+            break;
+        }
+/////////////////////////////////////////////////////////////////////////////////////
+
+        default:
+            std::cerr << "Tipo de tensor no soportado: " << ggml_type_name(tensor_info->type) << std::endl;
+            return nullptr;
+    }
+    
+    return tensor;
+}
+
+void copy_tensor_data(ggml_tensor* dst, ggml_tensor* src, size_t offset) {
+    if (dst->type != GGML_TYPE_F32 || src->type != GGML_TYPE_F32) {
+        std::cerr << "Solo se soporta copia de tensores F32" << std::endl;
+        return;
+    }
+    
+    size_t src_size = ggml_element_size(src) * ggml_nelements(src);
+    size_t dst_offset = offset * ggml_element_size(dst);
+    
+    if (dst_offset + src_size > ggml_nbytes(dst)) {
+        std::cerr << "Desbordamiento al copiar tensor" << std::endl;
+        return;
+    }
+    
+    memcpy((char*)dst->data + dst_offset, src->data, src_size);
+}
+
+
+bool run_vit_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams& params, GraphData& graph_data) {
     std::cout << "Initializing ViT model..." << std::endl;
     
-    GraphData graph_data = gguf_graph_data(gguf_init_from_file(params.model_path.c_str(), {}), params.model_path.c_str());
+    // Obtener parámetros del modelo desde los metadatos GGUF
+    int image_size = graph_data.find_metadata("vit.image_size")->value.i32;
+    int patch_size = graph_data.find_metadata("vit.patch_size")->value.i32;
+    int num_layers = graph_data.find_metadata("vit.block_count")->value.i32;
+    int hidden_dim = graph_data.find_metadata("vit.embedding_length")->value.i32;
+    int num_heads = graph_data.find_metadata("vit.attention.head_count")->value.i32;
+    float norm_eps = graph_data.find_metadata("vit.attention.layer_norm_epsilon")->value.f32;
     
+    // 1. Preparar entrada (imagen)
     ggml_tensor* input_image = ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 
-                                               params.image_size, params.image_size, 3, 1);
+                                               image_size, image_size, 3, 1);
     
-    ggml_tensor* patch_emb = ggml_conv_2d(ctx, /* patch_proj */, input_image, 16, 16, 0, 0);
-    patch_emb = ggml_reshape_3d(ctx, patch_emb, patch_emb->ne[0], patch_emb->ne[1], patch_emb->ne[2]*patch_emb->ne[3]);
+    // 2. Proyección de parches (patch embedding)
+    ggml_tensor* patch_proj = get_layer_tensor(ctx, graph_data, "patch_embed.proj.weight");
+    ggml_tensor* patch_emb = ggml_conv_2d(ctx, input_image, patch_proj, 
+                                     patch_size, patch_size,  // stride
+                                     0, 0,                   // padding
+                                     1, 1);                  // dilation
     
-    ggml_tensor* embeddings = class_token(ctx, patch_emb);
-    embeddings = positional_encoding(ctx, embeddings, "sinusoidal", embeddings->ne[0], 0, 10000.0f);
+    // Reformar a [num_patches, hidden_dim]
+    int num_patches = (image_size / patch_size) * (image_size / patch_size);
+    patch_emb = ggml_reshape_2d(ctx, patch_emb, hidden_dim, num_patches);
     
-    for (int i = 0; i < /* num_layers from metadata */; ++i) {
-        ggml_tensor* norm1 = layer_norm(ctx, embeddings, false, 1e-6f);
-        ggml_tensor* q = ggml_mul_mat(ctx, /* Wq */, norm1);
-        ggml_tensor* k = ggml_mul_mat(ctx, /* Wk */, norm1);
-        ggml_tensor* v = ggml_mul_mat(ctx, /* Wv */, norm1);
+    // 3. Añadir token de clase [CLS]
+    ggml_tensor* cls_token = get_layer_tensor(ctx, graph_data, "cls_token");
+    ggml_tensor* embeddings = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, hidden_dim, num_patches + 1);
+    
+    // Copiar cls_token y patch_emb a embeddings
+    // Copiar cls_token y patch_emb a embeddings
+    ggml_set_zero(embeddings);
+    // Copiar cls_token al inicio (primera columna)
+    copy_tensor_data(embeddings, cls_token, 0);
+    // Copiar patch_emb después del cls_token
+    copy_tensor_data(embeddings, patch_emb, hidden_dim * sizeof(float));
+    
+    // 4. Añadir positional embeddings
+    ggml_tensor* pos_embed = get_layer_tensor(ctx, graph_data, "pos_embed");
+    embeddings = ggml_add(ctx, embeddings, pos_embed);
+    
+    // 5. Capas del Transformer
+    for (int i = 0; i < num_layers; ++i) {
+        std::string layer_prefix = "blocks." + std::to_string(i) + ".";
+        
+        // Atención
+        ggml_tensor* norm1 = get_layer_tensor(ctx, graph_data, layer_prefix + "norm1.weight");
+        ggml_tensor* attn_norm = layer_norm(ctx, embeddings, norm1, nullptr, false, norm_eps);
+        
+        // Proyecciones Q, K, V
+        ggml_tensor* q_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn.q_proj.weight");
+        ggml_tensor* k_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn.k_proj.weight");
+        ggml_tensor* v_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn.v_proj.weight");
+        
+        ggml_tensor* q = ggml_mul_mat(ctx, q_proj, attn_norm);
+        ggml_tensor* k = ggml_mul_mat(ctx, k_proj, attn_norm);
+        ggml_tensor* v = ggml_mul_mat(ctx, v_proj, attn_norm);
+        
+        // Atención multi-cabeza
+        int head_dim = hidden_dim / num_heads;
+        q = ggml_reshape_3d(ctx, q, head_dim, num_heads, num_patches + 1);
+        k = ggml_reshape_3d(ctx, k, head_dim, num_heads, num_patches + 1);
+        v = ggml_reshape_3d(ctx, v, head_dim, num_heads, num_patches + 1);
         
         ggml_tensor* attention = multi_head_attention(ctx, q, k, v, false);
-        attention = ggml_mul_mat(ctx, /* out_proj */, attention);
+        attention = ggml_reshape_2d(ctx, attention, hidden_dim, num_patches + 1);
+        
+        // Proyección de salida y conexión residual
+        ggml_tensor* out_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn.out_proj.weight");
+        attention = ggml_mul_mat(ctx, out_proj, attention);
         embeddings = ggml_add(ctx, embeddings, attention);
         
-        ggml_tensor* norm2 = layer_norm(ctx, embeddings, false, 1e-6f);
-        ggml_tensor* mlp = feed_forward(ctx, norm2, /* fc1 */, /* b1 */, "gelu");
-        mlp = feed_forward(ctx, mlp, /* fc2 */, /* b2 */, "linear");
+        // MLP (Feed Forward Network)
+        ggml_tensor* norm2 = get_layer_tensor(ctx, graph_data, layer_prefix + "norm2.weight");
+        ggml_tensor* mlp_norm = layer_norm(ctx, embeddings, norm2, nullptr, false, norm_eps);
+        
+        ggml_tensor* fc1 = get_layer_tensor(ctx, graph_data, layer_prefix + "mlp.fc1.weight");
+        ggml_tensor* fc1_bias = get_layer_tensor(ctx, graph_data, layer_prefix + "mlp.fc1.bias");
+        ggml_tensor* fc2 = get_layer_tensor(ctx, graph_data, layer_prefix + "mlp.fc2.weight");
+        ggml_tensor* fc2_bias = get_layer_tensor(ctx, graph_data, layer_prefix + "mlp.fc2.bias");
+        
+        ggml_tensor* mlp = feed_forward(ctx, mlp_norm, fc1, fc1_bias, "gelu");
+        mlp = feed_forward(ctx, mlp, fc2, fc2_bias, "linear");
         embeddings = ggml_add(ctx, embeddings, mlp);
     }
     
-    ggml_tensor* cls_output = ggml_view_1d(ctx, embeddings, embeddings->ne[0], 0);
-    cls_output = layer_norm(ctx, cls_output, false, 1e-6f);
-    ggml_tensor* output = ggml_mul_mat(ctx, /* classifier */, cls_output);
+    // 6. Extraer token [CLS] y normalización final
+    ggml_tensor* cls_output = ggml_view_1d(ctx, embeddings, hidden_dim, 0);
+    ggml_tensor* norm = get_layer_tensor(ctx, graph_data, "norm.weight");
+    cls_output = layer_norm(ctx, cls_output, norm, nullptr, false, norm_eps);
     
+    // 7. Clasificador
+    ggml_tensor* classifier = get_layer_tensor(ctx, graph_data, "head.weight");
+    ggml_tensor* output = ggml_mul_mat(ctx, classifier, cls_output);
+    
+    // 8. Construir y ejecutar el grafo computacional
     struct ggml_cgraph* gf = ggml_new_graph(ctx);
     ggml_build_forward_expand(gf, output);
     ggml_backend_graph_compute(backend, gf);
@@ -52,72 +183,3 @@ bool run_vit_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams&
     std::cout << "ViT model execution completed" << std::endl;
     return true;
 }
-
-
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams& params) {
-    std::cout << "Initializing Whisper model..." << std::endl;
-    
-    GraphData graph_data = gguf_graph_data(gguf_init_from_file(params.model_path.c_str(), {}), params.model_path.c_str());
-    
-    ggml_tensor* input_audio = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, params.n_mels, params.n_audio_ctx, 1);
-    
-    ggml_tensor* audio_emb = ggml_conv_1d(ctx, /* conv1 */, input_audio, 1, 1, 0);
-    audio_emb = ggml_gelu(ctx, audio_emb);
-    audio_emb = ggml_conv_1d(ctx, /* conv2 */, audio_emb, 1, 1, 0);
-    audio_emb = ggml_gelu(ctx, audio_emb);
-    
-    audio_emb = positional_encoding(ctx, audio_emb, "sinusoidal", audio_emb->ne[0], 0, 10000.0f);
-    
-    for (int i = 0; i < /* num_encoder_layers */; ++i) {
-        ggml_tensor* norm1 = layer_norm(ctx, audio_emb, false, 1e-5f);
-        ggml_tensor* q = ggml_mul_mat(ctx, /* Wq */, norm1);
-        ggml_tensor* k = ggml_mul_mat(ctx, /* Wk */, norm1);
-        ggml_tensor* v = ggml_mul_mat(ctx, /* Wv */, norm1);
-        
-        ggml_tensor* self_attn = multi_head_attention(ctx, q, k, v, false);
-        self_attn = ggml_mul_mat(ctx, /* out_proj */, self_attn);
-        audio_emb = ggml_add(ctx, audio_emb, self_attn);
-        
-        ggml_tensor* norm2 = layer_norm(ctx, audio_emb, false, 1e-5f);
-        ggml_tensor* mlp = feed_forward(ctx, norm2, /* fc1 */, /* b1 */, "gelu");
-        mlp = feed_forward(ctx, mlp, /* fc2 */, /* b2 */, "linear");
-        audio_emb = ggml_add(ctx, audio_emb, mlp);
-    }
-    
-    ggml_tensor* tokens = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, params.n_audio_ctx);
-    ggml_tensor* token_emb = ggml_get_rows(ctx, /* token_emb */, tokens);
-    
-    for (int i = 0; i < /* num_decoder_layers */; ++i) {
-        ggml_tensor* norm1 = layer_norm(ctx, token_emb, false, 1e-5f);
-        ggml_tensor* q = ggml_mul_mat(ctx, /* Wq */, norm1);
-        ggml_tensor* k = ggml_mul_mat(ctx, /* Wk */, norm1);
-        ggml_tensor* v = ggml_mul_mat(ctx, /* Wv */, norm1);
-        
-        ggml_tensor* self_attn = multi_head_attention(ctx, q, k, v, true);
-        token_emb = ggml_add(ctx, token_emb, self_attn);
-        
-        ggml_tensor* norm2 = layer_norm(ctx, token_emb, false, 1e-5f);
-        ggml_tensor* cross_attn = cross_attention(ctx, norm2, audio_emb, audio_emb);
-        token_emb = ggml_add(ctx, token_emb, cross_attn);
-        
-        ggml_tensor* norm3 = layer_norm(ctx, token_emb, false, 1e-5f);
-        ggml_tensor* mlp = feed_forward(ctx, norm3, /* fc1 */, /* b1 */, "gelu");
-        mlp = feed_forward(ctx, mlp, /* fc2 */, /* b2 */, "linear");
-        token_emb = ggml_add(ctx, token_emb, mlp);
-    }
-    
-    ggml_tensor* output = ggml_mul_mat(ctx, /* lm_head */, token_emb);
-    
-    struct ggml_cgraph* gf = ggml_new_graph(ctx);
-    ggml_build_forward_expand(gf, output);
-    ggml_backend_graph_compute(backend, gf);
-    
-    std::cout << "Whisper model execution completed" << std::endl;
-    return true;
-}
-

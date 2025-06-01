@@ -117,12 +117,19 @@ std::string decode_basic(const std::vector<int>& tokens) {
 void run_interactive_chat(const ModelParams& params, GraphData graph_data) {
     
     int vocab_size = 0;
+    int n_embd = graph_data.find_metadata("llama.embedding_length")->value.i32;
+    int n_head = graph_data.find_metadata("llama.attention.head_count")->value.i32;
+    int n_layers = graph_data.find_metadata("llama.block_count")->value.i32;
+    float norm_eps = graph_data.find_metadata("llama.attention.layer_norm_rms_epsilon")->value.f32;
+    int n_ctx = graph_data.find_metadata("llama.context_length")->value.i32;
+    //ggml_tensor* token_embd = get_layer_tensor(ctx, graph_data, "token_embd.weight");
+    //int n_vocab = token_embd->ne[1];  // La segunda dimensión es el tamaño del vocabulario
 
-    const GGUFMetadata* n_ctx = graph_data.find_metadata("llama.context_length");
+    //const GGUFMetadata* n_ctx = graph_data.find_metadata("llama.context_length");
     const GGUFMetadata* tokens_meta = graph_data.find_metadata("tokenizer.ggml.tokens");
     if (tokens_meta && tokens_meta->type == GGUF_TYPE_ARRAY) {
         const auto& vocab = std::get<std::vector<std::string>>(tokens_meta->array.data);
-        int vocab_size = vocab.size();
+        vocab_size = vocab.size();
     }
 
     // Configurar tokens especiales desde los metadatos
@@ -160,8 +167,8 @@ void run_interactive_chat(const ModelParams& params, GraphData graph_data) {
         g_context_tokens.insert(g_context_tokens.end(), input_tokens.begin(), input_tokens.end());
         
         // Limitar al contexto máximo
-        if (g_context_tokens.size() > n_ctx->value.i32) {
-            int excess = g_context_tokens.size() - n_ctx->value.i32;
+        if (g_context_tokens.size() > n_ctx) {
+            int excess = g_context_tokens.size() - n_ctx;
             g_context_tokens.erase(g_context_tokens.begin(), g_context_tokens.begin() + excess);
         }
         /*
@@ -178,22 +185,19 @@ void run_interactive_chat(const ModelParams& params, GraphData graph_data) {
 
         std::cout << "Asistente: ";
         
-        while (generating && response_tokens.size() < n_ctx->value.i32) {
-        //while (generating && response_tokens.size() < params.n_ctx) {
+        while (generating && response_tokens.size() < n_ctx) {
             // Ejecutar el modelo con el contexto actual
-            ggml_tensor* logits_tensor = run_llama_model(ctx, backend, params, graph_data, g_context_tokens);
-            
+            ggml_tensor* logits_tensor = run_llama_model(ctx, backend, params, graph_data, n_embd, n_head, n_layers, norm_eps, n_ctx, vocab_size, g_context_tokens);
+            // Verificar si la ejecución fue exitosa    
             if (!logits_tensor) {
                 std::cerr << "Error en la ejecución del modelo\n";
                 break;
             }
             
-/////////////////////////////////// el tamaño del vocabulario hay que ponerlo como una variable ////////////////////////////////            
             // Muestrear próximo token
             float* logits = ggml_get_data_f32(logits_tensor);
-            int next_token = sample_next_token(logits, /* n_vocab */ 32000, 
+            int next_token = sample_next_token(logits, vocab_size, 
                                             params.temperature, params.top_p, params.top_k);
-///////////////////////////////////////////////////////////////////////////            
 
             // Verificar fin de generación
             if (next_token == g_eos_token) {
@@ -365,17 +369,13 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
                             ggml_backend_t backend,
                             const ModelParams& params,
                             const GraphData& graph_data,
+                            int n_embd,
+                            int n_head,
+                            int n_layers,
+                            float norm_eps,
+                            int n_ctx,
+                            int n_vocab,
                             const std::vector<int>& input_tokens) {
-
-    int n_embd = graph_data.find_metadata("llama.embedding_length")->value.i32;
-    int n_head = graph_data.find_metadata("llama.attention.head_count")->value.i32;
-    int n_layers = graph_data.find_metadata("llama.block_count")->value.i32;
-    float norm_eps = graph_data.find_metadata("llama.attention.layer_norm_rms_epsilon")->value.f32;
-    int n_ctx = graph_data.find_metadata("llama.context_length")->value.i32;
-    ggml_tensor* token_embd = get_layer_tensor(ctx, graph_data, "token_embd.weight");
-    int n_vocab = token_embd->ne[1];  // La segunda dimensión es el tamaño del vocabulario
-
-
 
     // 1. Convertir input_tokens a tensor GGML
     ggml_tensor* tokens_tensor = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, input_tokens.size());
@@ -410,19 +410,10 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
     // La cuarta dimensión de b debe ser 1 (es decir, b es un tensor 3D o inferior).
     // b->type == GGML_TYPE_I32:
     // Los índices en b deben ser enteros de 32 bits (I32).
-
-
-    // de los siguientes comentario hay dudas, pueden ser incorrectos
-    // token_embd[a][b]
-    // tokens_tensor[x][y]
-    // b debe ser igual a y 
-    // La cuarta dimensión de tokens_tensor debe ser 1 (es decir, b es un tensor 3D o inferior).
-    // Los índices en tokens_tensor deben ser enteros de 32 bits (I32).
     ggml_tensor* current = ggml_get_rows(ctx, token_embd, tokens_tensor);
 
     // 4. Aplicar codificación posicional (RoPE)
-    //current = ggml_rope(ctx, current, input_tokens.size(), params.n_embd / params.n_head, 0, 10000.0f);
-
+    
     current = positional_encoding(
         ctx,
         current,
