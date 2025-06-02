@@ -8,9 +8,14 @@
 #include "model_modules.h"
 
 
+std::vector<int> tokenize_input(const std::string& input, const GraphData& graph_data) ;
+std::vector<int> tokenize_basic(const std::string& input);
+std::string decode_output(const std::vector<int>& tokens, const GraphData& graph_data);
+std::string decode_basic(const std::vector<int>& tokens);
+bool run_interactive_chat(ggml_backend_t backend, GraphData graph_data);
+
 ggml_tensor* run_llama_model(ggml_context* ctx, 
                             ggml_backend_t backend,
-                            const ModelParams& params,
                             const GraphData& graph_data,
                             int n_embd,
                             int n_head,

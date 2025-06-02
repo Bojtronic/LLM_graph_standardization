@@ -45,19 +45,20 @@ void print_usage(const char* prog_name) {
 
 ModelParams parse_command_line(int argc, char** argv) {
     ModelParams params;
-    params.type = MODEL_TYPE_UNKNOWN;
-    params.n_threads = 0;
-    params.n_gpu_layers = 0;
+    params.model_path = "";
+    //params.type = MODEL_TYPE_UNKNOWN;
+    //params.n_threads = 0;
+    //params.n_gpu_layers = 0;
     params.use_gpu = false;
-    params.seed = -1;
-    params.temperature = 0.8f;
-    params.top_k = 40;
-    params.top_p = 0.9f;
-    params.n_ctx = 2048;
-    params.n_batch = 512;
-    params.image_size = 224;
-    params.n_mels = 80;
-    params.n_audio_ctx = 1500;
+    //params.seed = -1;
+    //params.temperature = 0.8f;
+    //params.top_k = 40;
+    //params.top_p = 0.9f;
+    //params.n_ctx = 2048;
+    //params.n_batch = 512;
+    //params.image_size = 224;
+    //params.n_mels = 80;
+    //params.n_audio_ctx = 1500;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -72,6 +73,9 @@ ModelParams parse_command_line(int argc, char** argv) {
                 std::cerr << "Error: Missing argument for --model\n";
                 exit(1);
             }
+        } else if (arg == "--gpu" || arg == "--use-gpu") {
+            params.use_gpu = true;
+        /*
         } else if (arg == "-i" || arg == "--input") {
             if (i + 1 < argc) {
                 params.input_path = argv[++i];
@@ -108,6 +112,8 @@ ModelParams parse_command_line(int argc, char** argv) {
                 std::cerr << "Error: Missing argument for --seed\n";
                 exit(1);
             }
+
+        */
         } else {
             std::cerr << "Error: Unknown argument " << arg << "\n";
             print_usage(argv[0]);
@@ -118,6 +124,7 @@ ModelParams parse_command_line(int argc, char** argv) {
     return params;
 }
 
+/*
 void configure_model_specific_params(ModelParams& params, const gguf_context* ctx) {
     switch (params.type) {
         case MODEL_TYPE_LLAMA: {
@@ -188,10 +195,11 @@ void configure_model_specific_params(ModelParams& params, const gguf_context* ct
         std::cin >> params.output_path;
     }
 }
+*/
 
-void run_model(const ModelParams& params, GraphData graph_data) {
+void run_model(bool use_gpu, GraphData graph_data) {
     ggml_backend_t backend = NULL;
-    if (params.use_gpu) {
+    if (use_gpu) {
         backend = ggml_backend_cuda_init(0);
         if (!backend) {
             std::cerr << "Warning: Failed to initialize CUDA backend. Falling back to CPU.\n";
@@ -211,22 +219,32 @@ void run_model(const ModelParams& params, GraphData graph_data) {
     struct ggml_context* ctx = ggml_init(ggml_params);
     bool success = false;
 
+    const GGUFMetadata* arch_metadata = graph_data.find_metadata("general.architecture");
+    if (!arch_metadata) {
+        std::cerr << "Error: Could not find 'general.architecture' in model metadata\n";
+        ggml_free(ctx);
+        ggml_backend_free(backend);
+        return;
+    }
 
-    switch (params.type) {
-        case MODEL_TYPE_LLAMA:
-            std::cout << "Running LLaMA model...\n";
-            success = run_llama_model(ctx, backend, params, graph_data);
-            break;
-        case MODEL_TYPE_VIT:
-            std::cout << "Running ViT model...\n";
-            success = run_vit_model(ctx, backend, params);
-            break;
-        case MODEL_TYPE_WHISPER:
-            std::cout << "Running Whisper model...\n";
-            success = run_whisper_model(ctx, backend, params);
-            break;
-        default:
-            std::cerr << "Error: Unknown model type\n";
+    std::string architecture = arch_metadata->str;
+
+
+    
+    if (architecture == "llama") {
+        std::cout << "Running LLaMA model...\n";
+        success = run_interactive_chat(backend, graph_data);
+    }
+    else if (architecture == "vit") {
+        std::cout << "Running ViT model...\n";
+        success = run_vit_model(ctx, backend, graph_data);
+    }
+    else if (architecture == "whisper") {
+        std::cout << "Running Whisper model...\n";
+        success = run_whisper_model(ctx, backend, graph_data);
+    }
+    else {
+        std::cerr << "Error: Unknown model architecture '" << architecture << "'\n";
     }
     
     if (!success) {

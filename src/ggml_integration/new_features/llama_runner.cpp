@@ -114,109 +114,130 @@ std::string decode_basic(const std::vector<int>& tokens) {
     return output;
 }
 
-void run_interactive_chat(const ModelParams& params, GraphData graph_data) {
-    
-    int vocab_size = 0;
-    int n_embd = graph_data.find_metadata("llama.embedding_length")->value.i32;
-    int n_head = graph_data.find_metadata("llama.attention.head_count")->value.i32;
-    int n_layers = graph_data.find_metadata("llama.block_count")->value.i32;
-    float norm_eps = graph_data.find_metadata("llama.attention.layer_norm_rms_epsilon")->value.f32;
-    int n_ctx = graph_data.find_metadata("llama.context_length")->value.i32;
-    //ggml_tensor* token_embd = get_layer_tensor(ctx, graph_data, "token_embd.weight");
-    //int n_vocab = token_embd->ne[1];  // La segunda dimensión es el tamaño del vocabulario
+bool run_interactive_chat(ggml_backend_t backend, GraphData graph_data) {
+    try {
+        float temperature = 1.0f;
+        int top_k = 0;
+        float top_p = 1.0f;
 
-    //const GGUFMetadata* n_ctx = graph_data.find_metadata("llama.context_length");
-    const GGUFMetadata* tokens_meta = graph_data.find_metadata("tokenizer.ggml.tokens");
-    if (tokens_meta && tokens_meta->type == GGUF_TYPE_ARRAY) {
-        const auto& vocab = std::get<std::vector<std::string>>(tokens_meta->array.data);
-        vocab_size = vocab.size();
-    }
+        // Validación inicial de metadatos requeridos
+        const std::vector<std::string> required_metadata = {
+            "llama.embedding_length",
+            "llama.attention.head_count",
+            "llama.block_count",
+            "llama.attention.layer_norm_rms_epsilon",
+            "llama.context_length"
+        };
 
-    // Configurar tokens especiales desde los metadatos
-    const GGUFMetadata* eos_meta = graph_data.find_metadata("tokenizer.ggml.eos_token_id");
-    const GGUFMetadata* bos_meta = graph_data.find_metadata("tokenizer.ggml.bos_token_id");
-    
-    g_eos_token = eos_meta ? eos_meta->value.i32 : 2;
-    int bos_token = bos_meta ? bos_meta->value.i32 : 1;
+        for (const auto& meta : required_metadata) {
+            if (!graph_data.find_metadata(meta)) {
+                std::cerr << "Error: Missing required metadata '" << meta << "'\n";
+                return false;
+            }
+        }
 
-    // Inicializar backend
-    ggml_backend_t backend = params.use_gpu ? ggml_backend_cuda_init(0) : ggml_backend_cpu_init();
-    if (!backend) {
-        std::cerr << "Error al inicializar el backend\n";
-        return;
-    }
+        // Extracción de parámetros con verificación
+        int n_embd = graph_data.find_metadata("llama.embedding_length")->value.i32;
+        int n_head = graph_data.find_metadata("llama.attention.head_count")->value.i32;
+        int n_layers = graph_data.find_metadata("llama.block_count")->value.i32;
+        float norm_eps = graph_data.find_metadata("llama.attention.layer_norm_rms_epsilon")->value.f32;
+        int n_ctx = graph_data.find_metadata("llama.context_length")->value.i32;
 
-    // Bucle principal del chat
-    char input_buffer[1024];
-    while (true) {
-        std::cout << "> ";
-        std::cin.getline(input_buffer, sizeof(input_buffer));
-        std::string user_input(input_buffer);
+        // Configuración del vocabulario
+        int vocab_size = 0;
+        const GGUFMetadata* tokens_meta = graph_data.find_metadata("tokenizer.ggml.tokens");
+        if (!tokens_meta || tokens_meta->type != GGUF_TYPE_ARRAY) {
+            std::cerr << "Error: Invalid or missing tokenizer vocabulary\n";
+            return false;
+        }
+        vocab_size = std::get<std::vector<std::string>>(tokens_meta->array.data).size();
 
-        if (user_input == "salir" || user_input == "exit") break;
-
-        // 1. Tokenizar la entrada del usuario
-        std::vector<int> input_tokens = tokenize_input(user_input, graph_data);
+        // Configurar tokens especiales
+        const GGUFMetadata* eos_meta = graph_data.find_metadata("tokenizer.ggml.eos_token_id");
+        const GGUFMetadata* bos_meta = graph_data.find_metadata("tokenizer.ggml.bos_token_id");
         
-        // Agregar token BOS al inicio si está configurado
-        if (bos_token != -1) {
-            input_tokens.insert(input_tokens.begin(), bos_token);
-        }
+        g_eos_token = eos_meta ? eos_meta->value.i32 : 2;
+        int bos_token = bos_meta ? bos_meta->value.i32 : 1;
 
-        // Agregar al contexto (incluyendo tokens previos)
-        g_context_tokens.insert(g_context_tokens.end(), input_tokens.begin(), input_tokens.end());
-        
-        // Limitar al contexto máximo
-        if (g_context_tokens.size() > n_ctx) {
-            int excess = g_context_tokens.size() - n_ctx;
-            g_context_tokens.erase(g_context_tokens.begin(), g_context_tokens.begin() + excess);
-        }
-        /*
-        if (g_context_tokens.size() > params.n_ctx) {   
-            int excess = g_context_tokens.size() - params.n_ctx;
-            g_context_tokens.erase(g_context_tokens.begin(), g_context_tokens.begin() + excess);
-        }
-        */
-
-        // 2. Generar respuesta
-        std::vector<int> response_tokens;
-        bool generating = true;
+        // Crear contexto GGML una sola vez
         ggml_context* ctx = ggml_init({.mem_size = 16 * 1024 * 1024});
+        if (!ctx) {
+            std::cerr << "Error: Failed to initialize GGML context\n";
+            return false;
+        }
 
-        std::cout << "Asistente: ";
-        
-        while (generating && response_tokens.size() < n_ctx) {
-            // Ejecutar el modelo con el contexto actual
-            ggml_tensor* logits_tensor = run_llama_model(ctx, backend, params, graph_data, n_embd, n_head, n_layers, norm_eps, n_ctx, vocab_size, g_context_tokens);
-            // Verificar si la ejecución fue exitosa    
-            if (!logits_tensor) {
-                std::cerr << "Error en la ejecución del modelo\n";
-                break;
+        // Bucle principal del chat
+        char input_buffer[1024];
+        while (true) {
+            std::cout << "> ";
+            std::cin.getline(input_buffer, sizeof(input_buffer));
+            std::string user_input(input_buffer);
+
+            if (user_input == "salir" || user_input == "exit") break;
+
+            // Tokenización con manejo de errores
+            std::vector<int> input_tokens;
+            try {
+                input_tokens = tokenize_input(user_input, graph_data);
+            } catch (const std::exception& e) {
+                std::cerr << "Error tokenizing input: " << e.what() << "\n";
+                continue;
             }
             
-            // Muestrear próximo token
-            float* logits = ggml_get_data_f32(logits_tensor);
-            int next_token = sample_next_token(logits, vocab_size, 
-                                            params.temperature, params.top_p, params.top_k);
-
-            // Verificar fin de generación
-            if (next_token == g_eos_token) {
-                generating = false;
-            } else {
-                response_tokens.push_back(next_token);
-                g_context_tokens.push_back(next_token);
-                
-                // Mostrar token decodificado
-                std::cout << decode_output({next_token}, graph_data) << std::flush;
+            if (bos_token != -1) {
+                input_tokens.insert(input_tokens.begin(), bos_token);
             }
+
+            g_context_tokens.insert(g_context_tokens.end(), input_tokens.begin(), input_tokens.end());
+            
+            if (g_context_tokens.size() > n_ctx) {
+                int excess = g_context_tokens.size() - n_ctx;
+                g_context_tokens.erase(g_context_tokens.begin(), g_context_tokens.begin() + excess);
+            }
+
+            // Generación de respuesta
+            std::vector<int> response_tokens;
+            bool generating = true;
+            
+            std::cout << "Asistente: ";
+            
+            while (generating && response_tokens.size() < n_ctx) {
+                ggml_tensor* logits_tensor = run_llama_model(ctx, backend, graph_data, 
+                    n_embd, n_head, n_layers, norm_eps, n_ctx, vocab_size, g_context_tokens);
+                
+                if (!logits_tensor) {
+                    std::cerr << "\nError: Model execution failed\n";
+                    ggml_free(ctx);
+                    return false;
+                }
+                
+                float* logits = ggml_get_data_f32(logits_tensor);
+                int next_token = sample_next_token(logits, vocab_size, temperature, top_p, top_k);
+
+                if (next_token == g_eos_token) {
+                    generating = false;
+                } else {
+                    response_tokens.push_back(next_token);
+                    g_context_tokens.push_back(next_token);
+                    
+                    try {
+                        std::cout << decode_output({next_token}, graph_data) << std::flush;
+                    } catch (const std::exception& e) {
+                        std::cerr << "\nError decoding output: " << e.what() << "\n";
+                        generating = false;
+                    }
+                }
+            }
+            std::cout << "\n\n";
         }
-        std::cout << "\n\n";
 
         ggml_free(ctx);
+        g_context_tokens.clear();
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Fatal error in interactive chat: " << e.what() << "\n";
+        return false;
     }
-
-    ggml_backend_free(backend);
-    g_context_tokens.clear();
 }
 
 ggml_tensor* get_layer_tensor(ggml_context* ctx, const GraphData& graph_data, const std::string& name) {
@@ -367,7 +388,6 @@ int sample_next_token(const float* logits, int n_vocab,
 
 ggml_tensor* run_llama_model(ggml_context* ctx, 
                             ggml_backend_t backend,
-                            const ModelParams& params,
                             const GraphData& graph_data,
                             int n_embd,
                             int n_head,

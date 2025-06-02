@@ -61,7 +61,7 @@ ggml_tensor* get_layer_tensor(ggml_context* ctx, const GraphData& graph_data, co
     return tensor;
 }
 
-bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams& params, GraphData& graph_data) {
+bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, GraphData& graph_data) {
     std::cout << "Initializing Whisper model..." << std::endl;
     
     // Obtener parámetros del modelo desde los metadatos GGUF

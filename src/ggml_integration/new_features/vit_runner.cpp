@@ -79,7 +79,7 @@ void copy_tensor_data(ggml_tensor* dst, ggml_tensor* src, size_t offset) {
 }
 
 
-bool run_vit_model(ggml_context* ctx, ggml_backend_t backend, const ModelParams& params, GraphData& graph_data) {
+bool run_vit_model(ggml_context* ctx, ggml_backend_t backend, GraphData& graph_data) {
     std::cout << "Initializing ViT model..." << std::endl;
     
     // Obtener parámetros del modelo desde los metadatos GGUF

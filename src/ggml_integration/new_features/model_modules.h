@@ -16,30 +16,31 @@ enum ModelType {
 
 // Model parameters structure
 struct ModelParams {
-    ModelType type;
+    //ModelType type;
     std::string model_path;
-    std::string input_path;
-    std::string output_path;
-    int n_threads;
-    int n_gpu_layers;
+    //std::string input_path;
+    //std::string output_path;
+    //int n_threads;
+    //int n_gpu_layers;
     bool use_gpu;
     
     // Common parameters
-    int seed;
-    float temperature;
-    int top_k;
-    float top_p;
+    //int seed;
+    //float temperature = 1.0f;
+    //int top_k = 0;
+    //float top_p = 1.0f;
+
     
     // LLaMA specific
-    int n_ctx;
-    int n_batch;
+    //int n_ctx;
+    //int n_batch;
     
     // ViT specific
-    int image_size;
+    //int image_size;
     
     // Whisper specific
-    int n_mels;
-    int n_audio_ctx;
+    //int n_mels;
+    //int n_audio_ctx;
 };
 
 // Módulos comunes

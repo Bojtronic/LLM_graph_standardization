@@ -3,6 +3,10 @@
 #include <iostream>
 
 int main(int argc, char** argv) {
+
+    // ./programa --model ruta/al/modelo.gguf --gpu
+    // ./programa -m ruta/al/modelo.gguf --use-gpu
+    
     // Parse command line arguments
     ModelParams params = parse_command_line(argc, argv);
     if (params.model_path.empty()) {
@@ -28,11 +32,11 @@ int main(int argc, char** argv) {
     
 
     // Detect model type and configure parameters
-    params.type = detect_model_type(ctx_gguf);
-    configure_model_specific_params(params, ctx_gguf);
+    //params.type = detect_model_type(ctx_gguf);
+    //configure_model_specific_params(params, ctx_gguf);
     
     // Run the appropriate model
-    run_model(params, graph_data);
+    run_model(params.use_gpu, graph_data);
 
     // Cleanup
     gguf_free(ctx_gguf);
