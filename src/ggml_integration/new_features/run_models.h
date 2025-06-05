@@ -5,9 +5,11 @@
 #include "gguf.h"
 #include "ggml.h"
 #include "model_modules.h"
+#include "graph_data_structs.h"
 #include "llama_runner.h"
 #include "vit_runner.h"
 #include "whisper_runner.h"
+
 
 // Function declarations
 ModelType detect_model_type(const gguf_context* ctx);

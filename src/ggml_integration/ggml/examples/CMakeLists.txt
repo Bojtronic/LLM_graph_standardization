@@ -26,6 +26,7 @@ add_subdirectory(yolo)
 add_subdirectory(simple)
 add_subdirectory(magika)
 add_subdirectory(get_gguf_config)
+add_subdirectory(run_graph)
 
 if (GGML_METAL)
     add_subdirectory(perf-metal)

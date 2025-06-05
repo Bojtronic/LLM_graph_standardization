@@ -51,7 +51,7 @@ ggml_tensor * feed_forward(ggml_context * ctx, ggml_tensor * input, ggml_tensor 
 void ggml_sin_f32(int n, float * dest, const float * src);
 void ggml_cos_f32(int n, float * dest, const float * src);
 ggml_tensor * ggml_pow(ggml_context * ctx, ggml_tensor * a, ggml_tensor * b);
-ggml_tensor * positional_encoding(ggml_context * ctx, ggml_tensor * input, const char * type, int n_dims, int mode, float base, int n_ctx);
+ggml_tensor * positional_encoding(ggml_context * ctx, ggml_tensor * input, const char * type, int n_dims, int mode, float base);
 
 // Módulos específicos
 ggml_tensor* llama_ffn(ggml_context* ctx, ggml_tensor* input, ggml_tensor* gate_proj, ggml_tensor* up_proj, ggml_tensor* down_proj);

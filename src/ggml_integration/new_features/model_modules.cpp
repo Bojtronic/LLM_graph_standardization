@@ -19,7 +19,7 @@
  * @param scale_factor Factor de escalado opcional (si es 0, se usa 1/sqrt(d_k))
  * @return Tensor con el resultado de la atención [seq_len, num_heads, head_dim]
  */
-ggml_tensor* multi_head_attention(ggml_context* ctx, ggml_tensor* Q, ggml_tensor* K, ggml_tensor* V, bool is_causal, ggml_tensor* attention_mask = nullptr, float scale_factor = 0.0f) {
+ggml_tensor* multi_head_attention(ggml_context* ctx, ggml_tensor* Q, ggml_tensor* K, ggml_tensor* V, bool is_causal, ggml_tensor* attention_mask, float scale_factor) {
     // 1. Verificación de dimensiones
     if (Q->ne[0] != K->ne[0] || Q->ne[0] != V->ne[0] || 
         Q->ne[1] != K->ne[1] || Q->ne[1] != V->ne[1]) {
@@ -188,7 +188,7 @@ ggml_tensor * ggml_pow(ggml_context * ctx, ggml_tensor * a, ggml_tensor * b) {
 // - base: Base para el cálculo de frecuencias en la codificación sinusoidal.
 // Retorna:
 // - Un tensor con la codificación posicional aplicada.
-ggml_tensor * positional_encoding(ggml_context * ctx, ggml_tensor * input, const char * type, int n_dims, int mode, float base, int n_ctx) {
+ggml_tensor * positional_encoding(ggml_context * ctx, ggml_tensor * input, const char * type, int n_dims, int mode, float base) {
     // Codificación tipo "rope" (Rotary Positional Embedding).
     if (strcmp(type, "rope") == 0) {
         // Crea un tensor para almacenar las posiciones (índices de secuencia).

@@ -1,6 +1,17 @@
 cmake -B build
 
+
+
 cmake --build build --config Release --target gguf_reader
 
 ./build/bin/gguf_reader
+
+
+
+
+cmake --build build --config Release --target run_graph
+
+./build/bin/run_graph
+
+
 

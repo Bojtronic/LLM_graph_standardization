@@ -440,8 +440,7 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
         "rope",                     // Tipo RoPE
         n_embd / n_head, // Dimensiones por cabeza
         0,                          // Modo (0 para implementación estándar)
-        10000.0f,                   // Base de frecuencia
-        n_ctx                // Longitud máxima del contexto
+        10000.0f                   // Base de frecuencia
     );
 
     if (!current) {
@@ -468,8 +467,8 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
         ggml_tensor* v = ggml_mul_mat(ctx, v_proj, attn_norm_out);
 
         // Aplicar RoPE a Q y K
-        q = positional_encoding(ctx, q, "rope", n_embd / n_head, 0, 10000.0f, n_ctx);
-        k = positional_encoding(ctx, k, "rope", n_embd / n_head, 0, 10000.0f, n_ctx);
+        q = positional_encoding(ctx, q, "rope", n_embd / n_head, 0, 10000.0f);
+        k = positional_encoding(ctx, k, "rope", n_embd / n_head, 0, 10000.0f);
 
         // Reorganizar tensores para atención multi-cabeza
         int head_dim = n_embd / n_head;

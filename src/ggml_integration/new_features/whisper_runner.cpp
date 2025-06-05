@@ -96,7 +96,7 @@ bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, GraphData& gra
     audio_emb = ggml_gelu(ctx, audio_emb);
     
     // 3. Codificación posicional
-    audio_emb = positional_encoding(ctx, audio_emb, "sinusoidal", n_audio_state, 0, 10000.0f, n_audio_ctx/2);
+    audio_emb = positional_encoding(ctx, audio_emb, "sinusoidal", n_audio_state, 0, 10000.0f);
     
     // 4. Capas del encoder
     for (int i = 0; i < n_audio_layer; ++i) {
