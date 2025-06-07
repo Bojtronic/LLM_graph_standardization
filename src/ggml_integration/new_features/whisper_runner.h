@@ -8,6 +8,7 @@
 #include "model_modules.h"
 
 
-bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, GraphData graph_data);
+//bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, GraphData graph_data);
+bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, GraphData& graph_data);
 
 #endif // WHISPER_RUNNER_H

@@ -13,7 +13,9 @@ std::vector<int> tokenize_basic(const std::string& input);
 std::string decode_output(const std::vector<int>& tokens, const GraphData& graph_data);
 std::string decode_basic(const std::vector<int>& tokens);
 bool run_interactive_chat(ggml_backend_t backend, GraphData graph_data);
-
+int sample_next_token(const float* logits, int n_vocab, 
+                     float temperature, float top_p, int top_k);
+                     
 ggml_tensor* run_llama_model(ggml_context* ctx, 
                             ggml_backend_t backend,
                             const GraphData& graph_data,

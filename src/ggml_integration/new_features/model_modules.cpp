@@ -3,6 +3,59 @@
 #include <cstring>
 #include <iostream>
 
+
+ggml_tensor* get_layer_tensor(ggml_context* ctx, const GraphData& graph_data, const std::string& name) {
+    const GGUFTensor* tensor_info = graph_data.find_tensor(name);
+    if (!tensor_info) {
+        std::cerr << "Tensor no encontrado: " << name << std::endl;
+        return nullptr;
+    }
+    
+    // Crear tensor GGML con las dimensiones correctas
+    ggml_tensor* tensor = nullptr;
+    switch (tensor_info->n_dims) {
+        case 1:
+            tensor = ggml_new_tensor_1d(ctx, tensor_info->type, tensor_info->dims[0]);
+            break;
+        case 2:
+            tensor = ggml_new_tensor_2d(ctx, tensor_info->type, tensor_info->dims[0], tensor_info->dims[1]);
+            break;
+        default:
+            std::cerr << "Dimensionalidad no soportada para " << name << std::endl;
+            return nullptr;
+    }
+    
+    // Copiar datos según el tipo
+    switch (tensor_info->type) {
+        case GGML_TYPE_F32: {
+            if (const auto* data = tensor_info->get_data<float>()) {
+                memcpy(tensor->data, data->data(), data->size() * sizeof(float));
+            }
+            break;
+        }
+
+/////////////////////////////////////////////////////////////////////////////////////
+        //verificar si los datos cuantizados se pueden almacenar en 8 bits
+        // en el link se explican las cuantizaciones
+        // https://huggingface.co/docs/hub/gguf
+        case GGML_TYPE_Q2_K:
+        case GGML_TYPE_Q3_K: {
+            if (const auto* data = tensor_info->get_data<uint8_t>()) {
+                memcpy(tensor->data, data->data(), data->size());
+            }
+            break;
+        }
+/////////////////////////////////////////////////////////////////////////////////////
+
+        default:
+            std::cerr << "Tipo de tensor no soportado: " << ggml_type_name(tensor_info->type) << std::endl;
+            return nullptr;
+    }
+    
+    return tensor;
+}
+
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // MÓDULOS COMUNES /////////////////////////////////////////////////////////////////////////////////////////
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////

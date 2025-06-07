@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstring>
 #include <string>
+#include "graph_data_structs.h"
 
 // Model type definitions
 enum ModelType {
@@ -42,6 +43,8 @@ struct ModelParams {
     //int n_mels;
     //int n_audio_ctx;
 };
+
+ggml_tensor* get_layer_tensor(ggml_context* ctx, const GraphData& graph_data, const std::string& name);
 
 // Módulos comunes
 ggml_tensor * multi_head_attention(ggml_context* ctx, ggml_tensor* Q, ggml_tensor* K, ggml_tensor* V, bool is_causal, ggml_tensor* attention_mask = nullptr, float scale_factor = 0.0f);

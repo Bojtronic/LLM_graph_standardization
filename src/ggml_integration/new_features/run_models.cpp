@@ -5,7 +5,11 @@
 #include <ggml-backend.h>
 #include <ggml-cpu.h>
 #include <ggml-cuda.h>
+#include "llama_runner.h"
+#include "vit_runner.h"
+#include "whisper_runner.h"
 
+/*
 ModelType detect_model_type(const gguf_context* ctx) {
     int arch_key = gguf_find_key(ctx, "general.architecture");
     const char* arch = (arch_key != -1) ? gguf_get_val_str(ctx, arch_key) : nullptr;
@@ -27,6 +31,7 @@ ModelType detect_model_type(const gguf_context* ctx) {
     
     return MODEL_TYPE_UNKNOWN;
 }
+*/
 
 void print_usage(const char* prog_name) {
     std::cout << "Usage: " << prog_name << " [options]\n";
