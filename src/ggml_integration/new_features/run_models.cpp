@@ -204,13 +204,26 @@ void configure_model_specific_params(ModelParams& params, const gguf_context* ct
 
 void run_model(bool use_gpu, GraphData graph_data) {
     ggml_backend_t backend = NULL;
+
+    /*
     if (use_gpu) {
         backend = ggml_backend_cuda_init(0);
         if (!backend) {
             std::cerr << "Warning: Failed to initialize CUDA backend. Falling back to CPU.\n";
         }
     }
+    */
     
+    if (use_gpu) {
+        #ifdef GGML_USE_CUDA
+        std::cerr << "Error: CUDA requested but not available\n";
+        return;
+        #else
+        std::cerr << "Warning: GPU support requested but CUDA not compiled in. Using CPU.\n";
+        #endif
+    }
+    
+
     if (!backend) {
         backend = ggml_backend_cpu_init();
     }

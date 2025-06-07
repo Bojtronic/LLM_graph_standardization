@@ -20,29 +20,60 @@ set(SOURCES
 # Crear el ejecutable
 add_executable(${TARGET} ${SOURCES})
 
-# Enlazar con las bibliotecas necesarias
-target_link_libraries(${TARGET} PRIVATE 
-    ggml
-    $<$<BOOL:${GGML_CUDA}>:ggml-cuda>
-    $<$<BOOL:${GGML_CUDA}>:CUDA::cudart>
-)
-
-# Opciones de compilación
-target_compile_options(${TARGET} PRIVATE -Wall -Wextra -O2)
-
 # Incluir directorios de cabecera
 target_include_directories(${TARGET} PRIVATE 
     ../../include
     ${CMAKE_CURRENT_SOURCE_DIR}/../../../new_features
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../src
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../src/ggml-cuda
 )
 
-# Para GPU offloading 
-if (GGML_CUDA)
+# Configuración para CUDA
+if(GGML_CUDA)
+    message(STATUS "Configurando soporte CUDA...")
+    
     find_package(CUDAToolkit REQUIRED)
-    add_compile_definitions(GGML_USE_CUDA)
     enable_language(CUDA)
+    
+    # Añadir definiciones
+    target_compile_definitions(${TARGET} PRIVATE GGML_USE_CUDA)
+    
+    # Archivos fuente CUDA específicos
+    set(CUDA_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../../src/ggml-cuda/ggml-cuda.cu)
+    
+    # Verificar que el archivo existe
+    if(NOT EXISTS ${CUDA_SOURCES})
+        message(FATAL_ERROR "Archivo ggml-cuda.cu no encontrado en: ${CUDA_SOURCES}")
+    endif()
+    
+    # Añadir como fuente y marcar como CUDA
+    target_sources(${TARGET} PRIVATE ${CUDA_SOURCES})
+    set_source_files_properties(${CUDA_SOURCES} PROPERTIES LANGUAGE CUDA)
+    
+    # Configuración de arquitectura CUDA
+    set(CMAKE_CUDA_ARCHITECTURES "native")
+    
+    # Enlazar bibliotecas CUDA necesarias
+    target_link_libraries(${TARGET} PRIVATE 
+        CUDA::cudart
+        CUDA::cublas
+        CUDA::cublasLt
+    )
+    
+    message(STATUS "Fuente CUDA añadida: ${CUDA_SOURCES}")
 endif()
 
-if (GGML_METAL)
-    add_compile_definitions(GGML_USE_METAL)
+# Enlazar con GGML base
+target_link_libraries(${TARGET} PRIVATE ggml)
+
+# Configuración para Metal
+if(GGML_METAL AND APPLE)
+    find_library(METAL_LIBRARY Metal REQUIRED)
+    find_library(FOUNDATION_LIBRARY Foundation REQUIRED)
+    target_compile_definitions(${TARGET} PRIVATE GGML_USE_METAL)
+    target_link_libraries(${TARGET} PRIVATE ${METAL_LIBRARY} ${FOUNDATION_LIBRARY})
 endif()
+
+# Opciones de compilación
+target_compile_options(${TARGET} PRIVATE -Wall -Wextra -O2)
+
