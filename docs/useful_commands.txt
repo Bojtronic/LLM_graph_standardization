@@ -14,4 +14,7 @@ cmake --build build --config Release --target run_graph
 ./build/bin/run_graph
 
 
+./run_graph -m llama-2-7b.Q2_K.gguf
+
+mv ~/test/Graph/models/archivo.ext ~/test/Graph/
 

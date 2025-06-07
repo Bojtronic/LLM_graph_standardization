@@ -214,6 +214,19 @@ void run_model(bool use_gpu, GraphData graph_data) {
     }
     */
     
+    /*
+        if (use_gpu) {
+            #ifdef GGML_USE_CUDA
+            backend = ggml_backend_cuda_init(0);
+            if (!backend) {
+                std::cerr << "Warning: Failed to initialize CUDA backend. Falling back to CPU.\n";
+            }
+            #else
+            std::cerr << "Warning: GPU support requested but GGML was not compiled with CUDA support. Using CPU.\n";
+            #endif
+        }
+    */
+
     if (use_gpu) {
         #ifdef GGML_USE_CUDA
         std::cerr << "Error: CUDA requested but not available\n";
@@ -222,14 +235,24 @@ void run_model(bool use_gpu, GraphData graph_data) {
         std::cerr << "Warning: GPU support requested but CUDA not compiled in. Using CPU.\n";
         #endif
     }
-    
 
+    /*
     if (!backend) {
         backend = ggml_backend_cpu_init();
     }
-    
+    */
+
+    if (!backend) {
+        backend = ggml_backend_cpu_init();
+        if (!backend) {
+            std::cerr << "Error: Failed to initialize CPU backend\n";
+            return;
+        }
+    }
+
+    //manejar la memoria dependiendo del modelo
     struct ggml_init_params ggml_params = {
-        .mem_size = 16 * 1024 * 1024,
+        .mem_size = 256 * 1024 * 1024,
         .mem_buffer = NULL,
         .no_alloc = false,
     };
