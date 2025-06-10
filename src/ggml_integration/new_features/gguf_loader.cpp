@@ -436,6 +436,8 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
                 std::vector<uint8_t> quant_data(tensor.size);
                 file.read(reinterpret_cast<char *>(quant_data.data()), tensor.size);
                 tensor.data = quant_data;
+
+                
             }
         }
 

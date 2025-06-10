@@ -25,14 +25,14 @@ typedef struct {
 
 typedef struct {
     uint8_t qs[128];  // 4-bit quantized weights
-    uint8_t scales[8]; // 6-bit scales and mins
+    uint8_t scales[12]; // 6-bit scales and mins
     ggml_fp16_t d;     // super-block scale
     ggml_fp16_t dmin;  // super-block minimum
 } block_q4_k;
 
 typedef struct {
     uint8_t qs[160];  // 5-bit quantized weights
-    uint8_t scales[8]; // 6-bit scales and mins
+    uint8_t scales[12]; // 6-bit scales and mins
     ggml_fp16_t d;     // super-block scale
     ggml_fp16_t dmin;  // super-block minimum
 } block_q5_k;
