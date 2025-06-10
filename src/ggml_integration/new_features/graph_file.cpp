@@ -1,6 +1,7 @@
+#include "graph_file.h"
 #include <fstream>
 #include <iostream>
-#include "graph_data_structs.h"
+
 
 
 /**
