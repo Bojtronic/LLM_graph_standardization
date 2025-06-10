@@ -8,6 +8,7 @@
 #include "llama_runner.h"
 #include "vit_runner.h"
 #include "whisper_runner.h"
+#include "graph_file.h" 
 
 /*
 ModelType detect_model_type(const gguf_context* ctx) {
@@ -202,7 +203,7 @@ void configure_model_specific_params(ModelParams& params, const gguf_context* ct
 }
 */
 
-void run_model(bool use_gpu, GraphData graph_data) {
+void run_model(bool use_gpu, const std::string& model_filename) {
     ggml_backend_t backend = NULL;
 
     /*
@@ -260,29 +261,29 @@ void run_model(bool use_gpu, GraphData graph_data) {
     struct ggml_context* ctx = ggml_init(ggml_params);
     bool success = false;
 
-    const GGUFMetadata* arch_metadata = graph_data.find_metadata("general.architecture");
-    if (!arch_metadata) {
-        std::cerr << "Error: Could not find 'general.architecture' in model metadata\n";
+    GGUFMetadata arch_metadata = read_metadata(model_filename, "general.architecture");
+    if (arch_metadata.type != GGUF_TYPE_STRING) {
+        std::cerr << "Error: Could not find 'general.architecture' in model metadata or invalid type\n";
         ggml_free(ctx);
         ggml_backend_free(backend);
         return;
     }
 
-    std::string architecture = arch_metadata->str;
+    std::string architecture = arch_metadata.str;
 
 
     
     if (architecture == "llama") {
         std::cout << "Running LLaMA model...\n";
-        success = run_interactive_chat(backend, graph_data);
+        success = run_interactive_chat(backend, model_filename);
     }
     else if (architecture == "vit") {
         std::cout << "Running ViT model...\n";
-        success = run_vit_model(ctx, backend, graph_data);
+        success = run_vit_model(ctx, backend, model_filename);
     }
     else if (architecture == "whisper") {
         std::cout << "Running Whisper model...\n";
-        success = run_whisper_model(ctx, backend, graph_data);
+        success = run_whisper_model(ctx, backend, model_filename);
     }
     else {
         std::cerr << "Error: Unknown model architecture '" << architecture << "'\n";

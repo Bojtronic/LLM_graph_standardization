@@ -15,6 +15,7 @@ set(SOURCES
     ../../../new_features/llama_runner.cpp
     ../../../new_features/vit_runner.cpp
     ../../../new_features/whisper_runner.cpp
+    ../../../new_features/graph_file.cpp
 )
 
 # Crear el ejecutable

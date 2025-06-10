@@ -13,6 +13,6 @@
 void print_usage(const char* prog_name);
 ModelParams parse_command_line(int argc, char** argv);
 //void configure_model_specific_params(ModelParams& params, const gguf_context* ctx);
-void run_model(bool use_gpu, GraphData graph_data);
+void run_model(bool use_gpu, const std::string& model_filename);
 
 #endif // RUN_MODELS_H

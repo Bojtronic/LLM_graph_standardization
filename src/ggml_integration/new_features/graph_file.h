@@ -29,14 +29,12 @@ GGUFMetadata read_metadata(const std::string& filename, const std::string& key);
  */
 GGUFTensor read_tensor(const std::string& filename, const std::string& name);
 
-// Funciones auxiliares (implementación interna)
-namespace internal {
-    void skip_metadata(std::ifstream& in);
-    size_t type_size(enum gguf_type type);
-    size_t ggml_type_size(enum ggml_type type);
+// Funciones auxiliares 
+void skip_metadata(std::ifstream& in);
+size_t type_size(enum gguf_type type);
+size_t ggml_type_size(enum ggml_type type);
     
-    template<typename T>
-    std::vector<T> read_array(std::ifstream& in, size_t size);
-}
+template<typename T>
+std::vector<T> read_array(std::ifstream& in, size_t size);
 
 #endif // GRAPH_FILE_H

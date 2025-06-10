@@ -9,7 +9,7 @@
 
 
 //bool run_vit_model(ggml_context* ctx, ggml_backend_t backend, GraphData graph_data);
-bool run_vit_model(ggml_context* ctx, ggml_backend_t backend, GraphData& graph_data);
+bool run_vit_model(ggml_context* ctx, ggml_backend_t backend, const std::string& model_filename);
 
 
 #endif // VIT_RUNNER_H

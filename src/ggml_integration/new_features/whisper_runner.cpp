@@ -4,6 +4,7 @@
 #include <ggml-cpu.h>
 
 #include "model_modules.h"
+#include "graph_file.h" 
 #include <vector>
 #include <algorithm>
 #include <random>
@@ -11,30 +12,78 @@
 #include <sstream>
 
 
-bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, GraphData& graph_data) {
+bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, const std::string& model_filename) {
     std::cout << "Initializing Whisper model..." << std::endl;
     
+    // Función auxiliar para cargar tensores
+    auto load_tensor = [&](const std::string& name) -> ggml_tensor* {
+        GGUFTensor tensor_data = read_tensor(model_filename, name);
+        if (tensor_data.name.empty()) {
+            std::cerr << "Error: Failed to load tensor " << name << std::endl;
+            return nullptr;
+        }
+
+        // Crear tensor GGML basado en los datos leídos
+        ggml_tensor* tensor = nullptr;
+        if (tensor_data.n_dims == 1) {
+            tensor = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, tensor_data.dims[0]);
+        } else if (tensor_data.n_dims == 2) {
+            tensor = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, tensor_data.dims[0], tensor_data.dims[1]);
+        } else if (tensor_data.n_dims == 3) {
+            tensor = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, 
+                                      tensor_data.dims[0], tensor_data.dims[1],
+                                      tensor_data.dims[2]);
+        }
+
+        if (!tensor) {
+            std::cerr << "Error: Failed to create tensor for " << name << std::endl;
+            return nullptr;
+        }
+
+        // Copiar datos al tensor GGML
+        if (std::holds_alternative<std::vector<float>>(tensor_data.data)) {
+            const auto& data = std::get<std::vector<float>>(tensor_data.data);
+            memcpy(tensor->data, data.data(), data.size() * sizeof(float));
+        } else {
+            std::cerr << "Error: Unexpected tensor data type for " << name << std::endl;
+            return nullptr;
+        }
+
+        return tensor;
+    };
+
     // Obtener parámetros del modelo desde los metadatos GGUF
-    int n_mels = graph_data.find_metadata("whisper.n_mels")->value.i32;
-    int n_audio_ctx = graph_data.find_metadata("whisper.n_audio_ctx")->value.i32;
-    int n_audio_state = graph_data.find_metadata("whisper.n_audio_state")->value.i32;
-    int n_audio_head = graph_data.find_metadata("whisper.n_audio_head")->value.i32;
-    int n_audio_layer = graph_data.find_metadata("whisper.n_audio_layer")->value.i32;
-    int n_text_ctx = graph_data.find_metadata("whisper.n_text_ctx")->value.i32;
-    int n_text_state = graph_data.find_metadata("whisper.n_text_state")->value.i32;
-    int n_text_head = graph_data.find_metadata("whisper.n_text_head")->value.i32;
-    int n_text_layer = graph_data.find_metadata("whisper.n_text_layer")->value.i32;
+    auto get_metadata_int = [&](const std::string& key) -> int {
+        GGUFMetadata md = read_metadata(model_filename, key);
+        if (md.type == GGUF_TYPE_COUNT) {
+            std::cerr << "Error: Missing metadata " << key << std::endl;
+            return 0;
+        }
+        return md.value.i32;
+    };
+
+    int n_mels = get_metadata_int("whisper.n_mels");
+    int n_audio_ctx = get_metadata_int("whisper.n_audio_ctx");
+    int n_audio_state = get_metadata_int("whisper.n_audio_state");
+    int n_audio_head = get_metadata_int("whisper.n_audio_head");
+    int n_audio_layer = get_metadata_int("whisper.n_audio_layer");
+    int n_text_ctx = get_metadata_int("whisper.n_text_ctx");
+    int n_text_state = get_metadata_int("whisper.n_text_state");
+    int n_text_head = get_metadata_int("whisper.n_text_head");
+    int n_text_layer = get_metadata_int("whisper.n_text_layer");
     float eps = 1e-5f;
 
     // 1. Preparar entrada de audio (log-Mel spectrogram)
     ggml_tensor* input_audio = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, n_mels, n_audio_ctx, 1);
     
     // 2. Procesamiento inicial del audio
-    ggml_tensor* conv1_weight = get_layer_tensor(ctx, graph_data, "encoder.conv1.weight");
-    ggml_tensor* conv1_bias = get_layer_tensor(ctx, graph_data, "encoder.conv1.bias");
-    ggml_tensor* conv2_weight = get_layer_tensor(ctx, graph_data, "encoder.conv2.weight");
-    ggml_tensor* conv2_bias = get_layer_tensor(ctx, graph_data, "encoder.conv2.bias");
+    ggml_tensor* conv1_weight = load_tensor("encoder.conv1.weight");
+    ggml_tensor* conv1_bias = load_tensor("encoder.conv1.bias");
+    ggml_tensor* conv2_weight = load_tensor("encoder.conv2.weight");
+    ggml_tensor* conv2_bias = load_tensor("encoder.conv2.bias");
     
+    if (!conv1_weight || !conv1_bias || !conv2_weight || !conv2_bias) return false;
+
     // Primera capa convolucional
     ggml_tensor* audio_emb = ggml_conv_1d(ctx, input_audio, conv1_weight, 1, 1, 0);
     audio_emb = ggml_add(ctx, audio_emb, conv1_bias);
@@ -53,13 +102,15 @@ bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, GraphData& gra
         std::string layer_prefix = "encoder.blocks." + std::to_string(i) + ".";
         
         // Atención
-        ggml_tensor* norm1 = get_layer_tensor(ctx, graph_data, layer_prefix + "attn_ln.weight");
+        ggml_tensor* norm1 = load_tensor(layer_prefix + "attn_ln.weight");
+        if (!norm1) return false;
         ggml_tensor* attn_norm = layer_norm(ctx, audio_emb, norm1, nullptr, false, eps);
         
         // Proyecciones Q, K, V
-        ggml_tensor* q_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn.query.weight");
-        ggml_tensor* k_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn.key.weight");
-        ggml_tensor* v_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn.value.weight");
+        ggml_tensor* q_proj = load_tensor(layer_prefix + "attn.query.weight");
+        ggml_tensor* k_proj = load_tensor(layer_prefix + "attn.key.weight");
+        ggml_tensor* v_proj = load_tensor(layer_prefix + "attn.value.weight");
+        if (!q_proj || !k_proj || !v_proj) return false;
         
         ggml_tensor* q = ggml_mul_mat(ctx, q_proj, attn_norm);
         ggml_tensor* k = ggml_mul_mat(ctx, k_proj, attn_norm);
@@ -75,18 +126,21 @@ bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, GraphData& gra
         self_attn = ggml_reshape_2d(ctx, self_attn, n_audio_state, n_audio_ctx/2);
         
         // Proyección de salida
-        ggml_tensor* out_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn.out.weight");
+        ggml_tensor* out_proj = load_tensor(layer_prefix + "attn.out.weight");
+        if (!out_proj) return false;
         self_attn = ggml_mul_mat(ctx, out_proj, self_attn);
         audio_emb = ggml_add(ctx, audio_emb, self_attn);
         
         // MLP
-        ggml_tensor* norm2 = get_layer_tensor(ctx, graph_data, layer_prefix + "mlp_ln.weight");
+        ggml_tensor* norm2 = load_tensor(layer_prefix + "mlp_ln.weight");
+        if (!norm2) return false;
         ggml_tensor* mlp_norm = layer_norm(ctx, audio_emb, norm2, nullptr, false, eps);
         
-        ggml_tensor* fc1 = get_layer_tensor(ctx, graph_data, layer_prefix + "mlp.0.weight");
-        ggml_tensor* fc1_bias = get_layer_tensor(ctx, graph_data, layer_prefix + "mlp.0.bias");
-        ggml_tensor* fc2 = get_layer_tensor(ctx, graph_data, layer_prefix + "mlp.2.weight");
-        ggml_tensor* fc2_bias = get_layer_tensor(ctx, graph_data, layer_prefix + "mlp.2.bias");
+        ggml_tensor* fc1 = load_tensor(layer_prefix + "mlp.0.weight");
+        ggml_tensor* fc1_bias = load_tensor(layer_prefix + "mlp.0.bias");
+        ggml_tensor* fc2 = load_tensor(layer_prefix + "mlp.2.weight");
+        ggml_tensor* fc2_bias = load_tensor(layer_prefix + "mlp.2.bias");
+        if (!fc1 || !fc1_bias || !fc2 || !fc2_bias) return false;
         
         ggml_tensor* mlp = feed_forward(ctx, mlp_norm, fc1, fc1_bias, "gelu");
         mlp = feed_forward(ctx, mlp, fc2, fc2_bias, "linear");
@@ -95,11 +149,13 @@ bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, GraphData& gra
     
     // 5. Inicializar tokens del decoder
     ggml_tensor* tokens = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, n_text_ctx);
-    ggml_tensor* token_emb = get_layer_tensor(ctx, graph_data, "decoder.token_embedding.weight");
+    ggml_tensor* token_emb = load_tensor("decoder.token_embedding.weight");
+    if (!token_emb) return false;
     token_emb = ggml_get_rows(ctx, token_emb, tokens);
     
     // 6. Posición embeddings para el decoder
-    ggml_tensor* pos_emb = get_layer_tensor(ctx, graph_data, "decoder.positional_embedding");
+    ggml_tensor* pos_emb = load_tensor("decoder.positional_embedding");
+    if (!pos_emb) return false;
     token_emb = ggml_add(ctx, token_emb, pos_emb);
     
     // 7. Capas del decoder
@@ -107,12 +163,14 @@ bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, GraphData& gra
         std::string layer_prefix = "decoder.blocks." + std::to_string(i) + ".";
         
         // Self-attention
-        ggml_tensor* norm1 = get_layer_tensor(ctx, graph_data, layer_prefix + "attn_ln.weight");
+        ggml_tensor* norm1 = load_tensor(layer_prefix + "attn_ln.weight");
+        if (!norm1) return false;
         ggml_tensor* attn_norm = layer_norm(ctx, token_emb, norm1, nullptr, false, eps);
         
-        ggml_tensor* q_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn.query.weight");
-        ggml_tensor* k_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn.key.weight");
-        ggml_tensor* v_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn.value.weight");
+        ggml_tensor* q_proj = load_tensor(layer_prefix + "attn.query.weight");
+        ggml_tensor* k_proj = load_tensor(layer_prefix + "attn.key.weight");
+        ggml_tensor* v_proj = load_tensor(layer_prefix + "attn.value.weight");
+        if (!q_proj || !k_proj || !v_proj) return false;
         
         ggml_tensor* q = ggml_mul_mat(ctx, q_proj, attn_norm);
         ggml_tensor* k = ggml_mul_mat(ctx, k_proj, attn_norm);
@@ -126,17 +184,20 @@ bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, GraphData& gra
         ggml_tensor* self_attn = multi_head_attention(ctx, q, k, v, true); // causal=true para decoder
         self_attn = ggml_reshape_2d(ctx, self_attn, n_text_state, n_text_ctx);
         
-        ggml_tensor* out_proj = get_layer_tensor(ctx, graph_data, layer_prefix + "attn.out.weight");
+        ggml_tensor* out_proj = load_tensor(layer_prefix + "attn.out.weight");
+        if (!out_proj) return false;
         self_attn = ggml_mul_mat(ctx, out_proj, self_attn);
         token_emb = ggml_add(ctx, token_emb, self_attn);
         
         // Cross-attention
-        ggml_tensor* norm2 = get_layer_tensor(ctx, graph_data, layer_prefix + "cross_attn_ln.weight");
+        ggml_tensor* norm2 = load_tensor(layer_prefix + "cross_attn_ln.weight");
+        if (!norm2) return false;
         ggml_tensor* cross_norm = layer_norm(ctx, token_emb, norm2, nullptr, false, eps);
         
-        ggml_tensor* cross_q = get_layer_tensor(ctx, graph_data, layer_prefix + "cross_attn.query.weight");
-        ggml_tensor* cross_k = get_layer_tensor(ctx, graph_data, layer_prefix + "cross_attn.key.weight");
-        ggml_tensor* cross_v = get_layer_tensor(ctx, graph_data, layer_prefix + "cross_attn.value.weight");
+        ggml_tensor* cross_q = load_tensor(layer_prefix + "cross_attn.query.weight");
+        ggml_tensor* cross_k = load_tensor(layer_prefix + "cross_attn.key.weight");
+        ggml_tensor* cross_v = load_tensor(layer_prefix + "cross_attn.value.weight");
+        if (!cross_q || !cross_k || !cross_v) return false;
         
         q = ggml_mul_mat(ctx, cross_q, cross_norm);
         k = ggml_mul_mat(ctx, cross_k, audio_emb); // Keys/Values del encoder
@@ -149,18 +210,21 @@ bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, GraphData& gra
         ggml_tensor* cross_attn = cross_attention(ctx, q, k, v);
         cross_attn = ggml_reshape_2d(ctx, cross_attn, n_text_state, n_text_ctx);
         
-        ggml_tensor* cross_out = get_layer_tensor(ctx, graph_data, layer_prefix + "cross_attn.out.weight");
+        ggml_tensor* cross_out = load_tensor(layer_prefix + "cross_attn.out.weight");
+        if (!cross_out) return false;
         cross_attn = ggml_mul_mat(ctx, cross_out, cross_attn);
         token_emb = ggml_add(ctx, token_emb, cross_attn);
         
         // MLP
-        ggml_tensor* norm3 = get_layer_tensor(ctx, graph_data, layer_prefix + "mlp_ln.weight");
+        ggml_tensor* norm3 = load_tensor(layer_prefix + "mlp_ln.weight");
+        if (!norm3) return false;
         ggml_tensor* mlp_norm = layer_norm(ctx, token_emb, norm3, nullptr, false, eps);
         
-        ggml_tensor* fc1 = get_layer_tensor(ctx, graph_data, layer_prefix + "mlp.0.weight");
-        ggml_tensor* fc1_bias = get_layer_tensor(ctx, graph_data, layer_prefix + "mlp.0.bias");
-        ggml_tensor* fc2 = get_layer_tensor(ctx, graph_data, layer_prefix + "mlp.2.weight");
-        ggml_tensor* fc2_bias = get_layer_tensor(ctx, graph_data, layer_prefix + "mlp.2.bias");
+        ggml_tensor* fc1 = load_tensor(layer_prefix + "mlp.0.weight");
+        ggml_tensor* fc1_bias = load_tensor(layer_prefix + "mlp.0.bias");
+        ggml_tensor* fc2 = load_tensor(layer_prefix + "mlp.2.weight");
+        ggml_tensor* fc2_bias = load_tensor(layer_prefix + "mlp.2.bias");
+        if (!fc1 || !fc1_bias || !fc2 || !fc2_bias) return false;
         
         ggml_tensor* mlp = feed_forward(ctx, mlp_norm, fc1, fc1_bias, "gelu");
         mlp = feed_forward(ctx, mlp, fc2, fc2_bias, "linear");
@@ -168,10 +232,12 @@ bool run_whisper_model(ggml_context* ctx, ggml_backend_t backend, GraphData& gra
     }
     
     // 8. Normalización final y proyección
-    ggml_tensor* norm_out = get_layer_tensor(ctx, graph_data, "decoder.ln.weight");
+    ggml_tensor* norm_out = load_tensor("decoder.ln.weight");
+    if (!norm_out) return false;
     token_emb = layer_norm(ctx, token_emb, norm_out, nullptr, false, eps);
     
-    ggml_tensor* lm_head = get_layer_tensor(ctx, graph_data, "decoder.token_embedding.weight"); // weight tying
+    ggml_tensor* lm_head = load_tensor("decoder.token_embedding.weight"); // weight tying
+    if (!lm_head) return false;
     ggml_tensor* output = ggml_mul_mat(ctx, lm_head, token_emb);
     
     // 9. Construir y ejecutar el grafo computacional
