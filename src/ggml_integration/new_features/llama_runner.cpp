@@ -213,6 +213,17 @@ bool run_interactive_chat(ggml_backend_t backend, const std::string& model_filen
             std::cout << "Asistente: ";
             
             while (generating && response_tokens.size() < n_ctx) {
+                // Si el contexto excede n_ctx, truncamos manteniendo los más recientes
+                if (g_context_tokens.size() >= n_ctx) {
+                    g_context_tokens.erase(g_context_tokens.begin(), 
+                                        g_context_tokens.end() - n_ctx + 1);
+                }
+
+                if (response_tokens.size() % 32 == 0) {
+                    ggml_free(ctx);
+                    ctx = ggml_init({.mem_size = 16 * 1024 * 1024}); // Recrear el contexto
+                }
+
                 ggml_tensor* logits_tensor = run_llama_model(ctx, backend, model_filename, 
                     n_embd, n_head, n_layers, norm_eps, n_ctx, vocab_size, g_context_tokens);
                 
@@ -377,9 +388,12 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
     // Convertir GGUFTensor a ggml_tensor
     ggml_tensor* token_embd = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, token_embd_tensor.dims[0], token_embd_tensor.dims[1]);
     if (!token_embd) {
-        std::cerr << "Error al crear tensor para embeddings" << std::endl;
+        std::cerr << "Error: No se pudo asignar memoria para embeddings (" 
+                << token_embd_tensor.dims[0] << "x" << token_embd_tensor.dims[1] 
+                << ")" << std::endl;
         return nullptr;
     }
+
     memcpy(token_embd->data, std::get<std::vector<float>>(token_embd_tensor.data).data(), 
            token_embd_tensor.dims[0] * token_embd_tensor.dims[1] * sizeof(float));
 
@@ -387,12 +401,12 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
 
     // 3. Aplicar embeddings
 
-    /*
+    
     if (*std::max_element(input_tokens.begin(), input_tokens.end()) >= token_embd->ne[1]) {
         std::cerr << "Índice de token excede el tamaño del vocabulario" << std::endl;
         return nullptr;
     }
-    */
+
 
 
     // a=token_embd   b=tokens_tensor

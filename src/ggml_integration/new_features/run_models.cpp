@@ -253,7 +253,7 @@ void run_model(bool use_gpu, const std::string& model_filename) {
 
     //manejar la memoria dependiendo del modelo
     struct ggml_init_params ggml_params = {
-        .mem_size = 256 * 1024 * 1024,
+        .mem_size = 16 * 1024 * 1024,
         .mem_buffer = NULL,
         .no_alloc = false,
     };
