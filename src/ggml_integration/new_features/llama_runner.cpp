@@ -174,16 +174,19 @@ bool run_interactive_chat(ggml_backend_t backend, const std::string& model_filen
 
         // Bucle principal del chat
         char input_buffer[1024];
-        while (true) {
-            std::cout << "> ";
+        
+        std::cout << "> ";
             std::cin.getline(input_buffer, sizeof(input_buffer));
             std::string user_input(input_buffer);
 
             if (!std::cin) {
-                break;  // Fin de entrada o error
+                return false;  // Fin de entrada o error
             }
             
-            if (user_input == "salir" || user_input == "exit") break;
+            if (user_input == "salir" || user_input == "exit") {
+                return false; 
+            }
+            
 
             // Tokenización con manejo de errores
             std::vector<int> input_tokens;
@@ -192,7 +195,7 @@ bool run_interactive_chat(ggml_backend_t backend, const std::string& model_filen
                 input_tokens = tokenize_input(user_input, model_filename);
             } catch (const std::exception& e) {
                 std::cerr << "Error tokenizing input: " << e.what() << "\n";
-                continue;
+                return false;
             }
             
             if (bos_token != -1) {
@@ -212,17 +215,19 @@ bool run_interactive_chat(ggml_backend_t backend, const std::string& model_filen
             
             std::cout << "Asistente: ";
             
-            while (generating && response_tokens.size() < n_ctx) {
+            while (generating && (response_tokens.size() < n_ctx)) {
                 // Si el contexto excede n_ctx, truncamos manteniendo los más recientes
                 if (g_context_tokens.size() >= n_ctx) {
                     g_context_tokens.erase(g_context_tokens.begin(), 
                                         g_context_tokens.end() - n_ctx + 1);
                 }
 
+                /*
                 if (response_tokens.size() % 32 == 0) {
                     ggml_free(ctx);
                     ctx = ggml_init({.mem_size = 16 * 1024 * 1024}); // Recrear el contexto
                 }
+                */
 
                 ggml_tensor* logits_tensor = run_llama_model(ctx, backend, model_filename, 
                     n_embd, n_head, n_layers, norm_eps, n_ctx, vocab_size, g_context_tokens);
@@ -252,13 +257,12 @@ bool run_interactive_chat(ggml_backend_t backend, const std::string& model_filen
                 }
             }
             std::cout << "\n\n";
-        }
 
         ggml_free(ctx);
         g_context_tokens.clear();
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "Fatal error in interactive chat: " << e.what() << "\n";
+        std::cerr << "Fatal error in chat: " << e.what() << "\n";
         return false;
     }
 }
