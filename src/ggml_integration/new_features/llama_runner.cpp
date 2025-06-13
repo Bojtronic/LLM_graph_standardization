@@ -12,9 +12,11 @@
 #include <sstream>
 
 // Variables globales para el estado del chat
-static std::vector<int> g_context_tokens;
-static int g_eos_token = -1;
+//static std::vector<int> g_context_tokens;
+//static int g_eos_token = -1;
 
+
+/*
 std::vector<int> tokenize_input(const std::string& input, const std::string& model_filename) {
     // Buscar el vocabulario en los metadatos
     GGUFMetadata tokens_meta = read_metadata(model_filename, "tokenizer.ggml.tokens");
@@ -58,7 +60,10 @@ std::vector<int> tokenize_input(const std::string& input, const std::string& mod
 
     return tokens;
 }
+*/
 
+
+/*
 // Función de respaldo para tokenización básica
 std::vector<int> tokenize_basic(const std::string& input) {
     std::vector<int> tokens;
@@ -77,8 +82,65 @@ std::vector<int> tokenize_basic(const std::string& input) {
     
     return tokens;
 }
+*/
 
-std::string decode_output(const std::vector<int>& tokens, const std::string& model_filename) {
+/*
+std::string decode_output_______(const std::vector<int>& tokens, const std::string& model_filename) {
+    // Buscar el vocabulario en los metadatos
+    GGUFMetadata tokens_meta = read_metadata(model_filename, "tokenizer.ggml.tokens");
+    
+    if (tokens_meta.type != GGUF_TYPE_ARRAY || 
+        !std::holds_alternative<std::vector<std::string>>(tokens_meta.array.data)) {
+        return decode_basic(tokens);
+    }
+
+    const auto& vocab = std::get<std::vector<std::string>>(tokens_meta.array.data);
+    std::string output;
+    
+    for (int token : tokens) {
+        if (token >= 0 && token < vocab.size()) {
+            output += vocab[token];
+        } else {
+            output += "[UNK:" + std::to_string(token) + "]";
+        }
+    }
+    
+    return output;
+}
+*/
+
+
+std::string decode_output(ggml_tensor* logits, const std::string& model_filename) {
+    // Verificar que el tensor es 2D [batch_size, vocab_size]
+    /*
+    if (logits->n_dims != 2) {
+        std::cerr << "Error: Expected 2D logits tensor\n";
+        return "[DECODE_ERROR]";
+    }
+    */
+
+    // Obtener las dimensiones del tensor
+    const int seq_len = logits->ne[0];
+    const int vocab_size = logits->ne[1];
+
+    // Convertir los logits a tokens (usando argmax)
+    std::vector<int> tokens;
+    float* logits_data = static_cast<float*>(logits->data);
+    
+    for (int i = 0; i < seq_len; ++i) {
+        float* row = logits_data + i * vocab_size;
+        int max_token = 0;
+        float max_val = row[0];
+        
+        for (int j = 1; j < vocab_size; ++j) {
+            if (row[j] > max_val) {
+                max_val = row[j];
+                max_token = j;
+            }
+        }
+        tokens.push_back(max_token);
+    }
+
     // Buscar el vocabulario en los metadatos
     GGUFMetadata tokens_meta = read_metadata(model_filename, "tokenizer.ggml.tokens");
     
@@ -115,6 +177,7 @@ std::string decode_basic(const std::vector<int>& tokens) {
     return output;
 }
 
+/*
 bool run_interactive_chat(ggml_backend_t backend, const std::string& model_filename) {
     try {
         float temperature = 1.0f;
@@ -172,91 +235,99 @@ bool run_interactive_chat(ggml_backend_t backend, const std::string& model_filen
             return false;
         }
 
-        // Bucle principal del chat
+        // Bucle principal del chat (se eliminó el bucle)
         char input_buffer[1024];
         
         std::cout << "> ";
-            std::cin.getline(input_buffer, sizeof(input_buffer));
-            std::string user_input(input_buffer);
+        std::cin.getline(input_buffer, sizeof(input_buffer));
+        std::string user_input(input_buffer);
 
-            if (!std::cin) {
-                return false;  // Fin de entrada o error
-            }
+        if (!std::cin) {
+            return false;  // Fin de entrada o error
+        }
             
-            if (user_input == "salir" || user_input == "exit") {
-                return false; 
-            }
+        if (user_input == "salir" || user_input == "exit") {
+            return false; 
+        }
             
 
-            // Tokenización con manejo de errores
-            std::vector<int> input_tokens;
-            try {
-                //input_tokens = tokenize_input(user_input, graph_data);
-                input_tokens = tokenize_input(user_input, model_filename);
-            } catch (const std::exception& e) {
-                std::cerr << "Error tokenizing input: " << e.what() << "\n";
-                return false;
-            }
+        // Tokenización con manejo de errores
+        std::vector<int> input_tokens;
+        try {
+            //input_tokens = tokenize_input(user_input, graph_data);
+            input_tokens = tokenize_input(user_input, model_filename);
+        } catch (const std::exception& e) {
+            std::cerr << "Error tokenizing input: " << e.what() << "\n";
+            return false;
+        }
             
-            if (bos_token != -1) {
-                input_tokens.insert(input_tokens.begin(), bos_token);
+        if (bos_token != -1) {
+            input_tokens.insert(input_tokens.begin(), bos_token);
+        }
+
+        g_context_tokens.insert(g_context_tokens.end(), input_tokens.begin(), input_tokens.end());
+            
+        if (g_context_tokens.size() > n_ctx) {
+            int excess = g_context_tokens.size() - n_ctx;
+            g_context_tokens.erase(g_context_tokens.begin(), g_context_tokens.begin() + excess);
+        }
+
+        // Generación de respuesta
+        std::vector<int> response_tokens;
+        bool generating = true;
+            
+        std::cout << "Asistente: ";
+            
+
+        ///////////////////////////////////////////////////////////////////
+
+
+        while (generating && (response_tokens.size() < n_ctx)) {
+            // Si el contexto excede n_ctx, truncamos manteniendo los más recientes
+            if (g_context_tokens.size() >= n_ctx) {
+                g_context_tokens.erase(g_context_tokens.begin(), g_context_tokens.end() - n_ctx + 1);
             }
 
-            g_context_tokens.insert(g_context_tokens.end(), input_tokens.begin(), input_tokens.end());
-            
-            if (g_context_tokens.size() > n_ctx) {
-                int excess = g_context_tokens.size() - n_ctx;
-                g_context_tokens.erase(g_context_tokens.begin(), g_context_tokens.begin() + excess);
-            }
-
-            // Generación de respuesta
-            std::vector<int> response_tokens;
-            bool generating = true;
-            
-            std::cout << "Asistente: ";
-            
-            while (generating && (response_tokens.size() < n_ctx)) {
-                // Si el contexto excede n_ctx, truncamos manteniendo los más recientes
-                if (g_context_tokens.size() >= n_ctx) {
-                    g_context_tokens.erase(g_context_tokens.begin(), 
-                                        g_context_tokens.end() - n_ctx + 1);
-                }
-
-                /*
+                /
                 if (response_tokens.size() % 32 == 0) {
                     ggml_free(ctx);
                     ctx = ggml_init({.mem_size = 16 * 1024 * 1024}); // Recrear el contexto
                 }
-                */
+                
 
-                ggml_tensor* logits_tensor = run_llama_model(ctx, backend, model_filename, 
+            
+            ggml_tensor* logits_tensor = run_llama_model(ctx, backend, model_filename, 
                     n_embd, n_head, n_layers, norm_eps, n_ctx, vocab_size, g_context_tokens);
                 
-                if (!logits_tensor) {
-                    std::cerr << "\nError: Model execution failed\n";
-                    ggml_free(ctx);
-                    return false;
-                }
-                
-                float* logits = ggml_get_data_f32(logits_tensor);
-                int next_token = sample_next_token(logits, vocab_size, temperature, top_p, top_k);
+            
 
-                if (next_token == g_eos_token) {
-                    generating = false;
-                } else {
-                    response_tokens.push_back(next_token);
-                    g_context_tokens.push_back(next_token);
+            //ggml_tensor* logits_tensor = nullptr;
+
+            if (!logits_tensor) {
+                std::cerr << "\nError: Model execution failed\n";
+                ggml_free(ctx);
+                return false;
+            }
+                
+            float* logits = ggml_get_data_f32(logits_tensor);
+            int next_token = sample_next_token(logits, vocab_size, temperature, top_p, top_k);
+
+            if (next_token == g_eos_token) {
+                generating = false;
+            } else {
+                response_tokens.push_back(next_token);
+                g_context_tokens.push_back(next_token);
                     
-                    try {
-                        //std::cout << decode_output({next_token}, graph_data) << std::flush;
-                        std::cout << decode_output({next_token}, model_filename) << std::flush;
-                    } catch (const std::exception& e) {
-                        std::cerr << "\nError decoding output: " << e.what() << "\n";
-                        generating = false;
-                    }
+                try {
+                    //std::cout << decode_output({next_token}, graph_data) << std::flush;
+                    std::cout << decode_output({next_token}, model_filename) << std::flush;
+                } catch (const std::exception& e) {
+                    std::cerr << "\nError decoding output: " << e.what() << "\n";
+                    generating = false;
                 }
             }
-            std::cout << "\n\n";
+        }
+        std::cout << "\n\n";
 
         ggml_free(ctx);
         g_context_tokens.clear();
@@ -266,9 +337,12 @@ bool run_interactive_chat(ggml_backend_t backend, const std::string& model_filen
         return false;
     }
 }
+*/
 
 
 
+
+/*
 int sample_next_token(const float* logits, int n_vocab, 
                      float temperature, float top_p, int top_k) {
     std::vector<float> probs(logits, logits + n_vocab);
@@ -362,23 +436,105 @@ int sample_next_token(const float* logits, int n_vocab,
     std::discrete_distribution<> dist(probs.begin(), probs.end());
     return dist(gen);
 }
+*/
 
-ggml_tensor* run_llama_model(ggml_context* ctx, 
-                            ggml_backend_t backend,
-                            const std::string& model_filename,
-                            int n_embd,
-                            int n_head,
-                            int n_layers,
-                            float norm_eps,
-                            int n_ctx,
-                            int n_vocab,
-                            const std::vector<int>& input_tokens) {
+bool run_llama_model(ggml_context* ctx, ggml_backend_t backend, const std::string& model_filename) {
+
+    
+    // Validación inicial de metadatos requeridos
+    const std::vector<std::string> required_metadata = {
+        "llama.embedding_length",
+        "llama.attention.head_count",
+        "llama.block_count",
+        "llama.attention.layer_norm_rms_epsilon",
+        "llama.context_length"
+    };
+
+
+    for (const auto& meta : required_metadata) {
+        GGUFMetadata md = read_metadata(model_filename, meta);
+        if (md.type == GGUF_TYPE_COUNT) { // Not found
+            std::cerr << "Error: Missing required metadata '" << meta << "'\n";
+            return false;
+        }
+    }
+
+    // Extracción de parámetros con verificación
+    int n_embd = read_metadata(model_filename, "llama.embedding_length").value.i32;
+    int n_head = read_metadata(model_filename, "llama.attention.head_count").value.i32;
+    int n_layers = read_metadata(model_filename, "llama.block_count").value.i32;
+    float norm_eps = read_metadata(model_filename, "llama.attention.layer_norm_rms_epsilon").value.f32;
+    int n_ctx = read_metadata(model_filename, "llama.context_length").value.i32;
+
+    // Configuración del vocabulario
+    GGUFMetadata tokens_meta = read_metadata(model_filename, "tokenizer.ggml.tokens");
+    if (tokens_meta.type != GGUF_TYPE_ARRAY || 
+        !std::holds_alternative<std::vector<std::string>>(tokens_meta.array.data)) {
+        std::cerr << "Error: Invalid or missing tokenizer vocabulary\n";
+        return false;
+    }
+    int n_vocab = std::get<std::vector<std::string>>(tokens_meta.array.data).size();
+
+    
+    //std::vector<int> context_tokens;
+    
+    // Configurar tokens especiales
+    GGUFMetadata eos_meta = read_metadata(model_filename, "tokenizer.ggml.eos_token_id");
+    GGUFMetadata bos_meta = read_metadata(model_filename, "tokenizer.ggml.bos_token_id");
+        
+    int eos_token = eos_meta.type != GGUF_TYPE_COUNT ? eos_meta.value.i32 : 2;
+    int bos_token = bos_meta.type != GGUF_TYPE_COUNT ? bos_meta.value.i32 : 1;
+
+
+    char input_buffer[1024];
+        
+    std::cout << "> ";
+    std::cin.getline(input_buffer, sizeof(input_buffer));
+    std::string user_input(input_buffer);
+
+    if (!std::cin) {
+        return false;  // Fin de entrada o error
+    }
+            
+    if (user_input == "salir" || user_input == "exit") {
+        return false; 
+    }
+            
+
+    // Tokenización
+    std::vector<int> input_tokens;
+    try {
+        input_tokens = tokenize_input(user_input, model_filename);
+    } catch (const std::exception& e) {
+        std::cerr << "Error tokenizing input: " << e.what() << "\n";
+        return false;
+    }
+            
+    if (bos_token != -1) {
+        input_tokens.insert(input_tokens.begin(), bos_token);
+    }
+
+    // Si se excede el tamaño del contexto n_ctx, se trunca manteniendo los tokens más recientes
+    if (input_tokens.size() > n_ctx) {
+        int excess = input_tokens.size() - n_ctx;
+        input_tokens.erase(input_tokens.begin(), input_tokens.begin() + excess);
+    }
+
+    
+    // Generación de respuesta
+    std::vector<int> response_tokens;
+    bool generating = true;
+            
+    std::cout << "Respuesta del modelo: ";
+
+   
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
     // 1. Convertir input_tokens a tensor GGML
     ggml_tensor* tokens_tensor = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, input_tokens.size());
     if (!tokens_tensor) {
         std::cerr << "Error al crear tensor de tokens" << std::endl;
-        return nullptr;
+        return false;
     }
     memcpy(tokens_tensor->data, input_tokens.data(), input_tokens.size() * sizeof(int));
 
@@ -386,7 +542,7 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
     GGUFTensor token_embd_tensor = read_tensor(model_filename, "token_embd.weight");
     if (token_embd_tensor.name.empty()) {
         std::cerr << "Error: No se pudo cargar token embeddings" << std::endl;
-        return nullptr;
+        return false;
     }
     
     // Convertir GGUFTensor a ggml_tensor
@@ -395,7 +551,7 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
         std::cerr << "Error: No se pudo asignar memoria para embeddings (" 
                 << token_embd_tensor.dims[0] << "x" << token_embd_tensor.dims[1] 
                 << ")" << std::endl;
-        return nullptr;
+        return false;
     }
 
     memcpy(token_embd->data, std::get<std::vector<float>>(token_embd_tensor.data).data(), 
@@ -404,11 +560,9 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
 
 
     // 3. Aplicar embeddings
-
-    
     if (*std::max_element(input_tokens.begin(), input_tokens.end()) >= token_embd->ne[1]) {
         std::cerr << "Índice de token excede el tamaño del vocabulario" << std::endl;
-        return nullptr;
+        return false;
     }
 
 
@@ -435,7 +589,7 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
 
     if (!current) {
         std::cerr << "Error al aplicar codificación posicional" << std::endl;
-        return nullptr;
+        return false;
     }
 
     // 5. Procesar cada capa del transformer
@@ -544,9 +698,34 @@ ggml_tensor* run_llama_model(ggml_context* ctx,
     ggml_backend_graph_compute(backend, gf);
 
     // 9. Retornar solo los logits del último token
-    ggml_tensor* last_logits = ggml_view_1d(ctx, logits, n_vocab, 
-                                        (input_tokens.size() - 1) * n_vocab * sizeof(float));
+    //ggml_tensor* last_logits = ggml_view_1d(ctx, logits, n_vocab, 
+    //                                    (input_tokens.size() - 1) * n_vocab * sizeof(float));
 
-    return last_logits;
+    //return last_logits;
+
+
+    //////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+    if (!logits) {
+        std::cerr << "\nError: Model execution failed\n";
+        ggml_free(ctx);
+        return false;
+    }
+
+    try {
+        //std::cout << decode_output({next_token}, graph_data) << std::flush;
+        std::cout << decode_output(logits, model_filename) << std::flush;
+    } catch (const std::exception& e) {
+        std::cerr << "\nError decoding output: " << e.what() << "\n";
+        generating = false;
+    }
+
+
+    std::cout << "\n\n";
+
+    ggml_free(ctx);
+    input_tokens.clear();
+    return true;
 }
 

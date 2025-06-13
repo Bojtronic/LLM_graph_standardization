@@ -208,6 +208,7 @@ void dequantize_q8_k(const void* src, float* dst, int k) {
 }
 
 // Unified dequantization interface
+// k represents the total number of elements to be processed (dequantized)
 void dequantize_k_quant(ggml_type type, const void* src, float* dst, int k) {
     switch(type) {
         case GGML_TYPE_Q2_K: dequantize_q2_k(src, dst, k); break;

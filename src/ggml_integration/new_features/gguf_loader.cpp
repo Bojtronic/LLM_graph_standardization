@@ -13,6 +13,7 @@
 #include <utility>
 #include "arch_info.h"
 #include "gguf.h"
+#include "quantization_management.h"
 
 // Función para inferir la operación basada en el nombre del tensor
 enum ggml_op infer_operation(const std::string &tensor_name)
@@ -433,11 +434,58 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
             else
             {
                 // Para tipos cuantizados, usar vector<uint8_t>
-                std::vector<uint8_t> quant_data(tensor.size);
-                file.read(reinterpret_cast<char *>(quant_data.data()), tensor.size);
-                tensor.data = quant_data;
+                //std::vector<uint8_t> quant_data(tensor.size);
+                //file.read(reinterpret_cast<char *>(quant_data.data()), tensor.size);
+                //tensor.data = quant_data;
 
-                
+
+                // Determinar el tamaño del bloque según el tipo de cuantización
+                size_t block_size = 0;
+                size_t values_per_block = 0;  // Valores desquantizados por bloque
+                switch (tensor.type) {
+                    case GGML_TYPE_Q2_K:
+                        block_size = sizeof(block_q2_k);
+                        values_per_block = 256;  // Cada bloque Q2_K contiene 256 valores
+                        break;
+                    case GGML_TYPE_Q3_K:
+                        block_size = sizeof(block_q3_k);
+                        values_per_block = 256;  // Cada bloque Q3_K contiene 256 valores
+                        break;
+                    case GGML_TYPE_Q4_K:
+                        block_size = sizeof(block_q4_k);
+                        values_per_block = 256;
+                        break;
+                    case GGML_TYPE_Q5_K:
+                        block_size = sizeof(block_q5_k);
+                        values_per_block = 256;
+                        break;
+                    case GGML_TYPE_Q6_K:
+                        block_size = sizeof(block_q6_k);
+                        values_per_block = 256;
+                        break;
+                    case GGML_TYPE_Q8_K:
+                        block_size = sizeof(block_q8_k);
+                        values_per_block = 256;
+                        break;
+                    default:
+                        throw std::runtime_error("Tipo de cuantización no soportado");
+                }
+                 
+                // Calcular el número de bloques en el tensor
+                size_t num_blocks = tensor.size / block_size;
+                std::vector<uint8_t> quant_data(tensor.size);
+                file.read(reinterpret_cast<char*>(quant_data.data()), tensor.size);
+
+                // Desquantizar a float
+                std::vector<float> float_data;
+                float_data.resize(num_blocks * values_per_block);  // Total de valores desquantizados
+
+                // Llamar a la función de desquantización correcta (solo cuantizacion QX_K)
+                dequantize_k_quant(tensor.type, quant_data.data(), float_data.data(), num_blocks * values_per_block);
+
+                // Almacenar los datos desquantizados en el tensor
+                tensor.data = float_data;
+                            
             }
         }
 

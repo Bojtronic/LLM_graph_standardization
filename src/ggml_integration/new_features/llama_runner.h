@@ -16,16 +16,7 @@ bool run_interactive_chat(ggml_backend_t backend, const std::string& model_filen
 int sample_next_token(const float* logits, int n_vocab, 
                      float temperature, float top_p, int top_k);
                      
-ggml_tensor* run_llama_model(ggml_context* ctx, 
-                            ggml_backend_t backend,
-                            const std::string& model_filename,
-                            int n_embd,
-                            int n_head,
-                            int n_layers,
-                            float norm_eps,
-                            int n_ctx,
-                            int n_vocab,
-                            const std::vector<int>& input_tokens);
+bool run_llama_model(ggml_context* ctx, ggml_backend_t backend, const std::string& model_filename);
 
 
 #endif // LLAMA_RUNNER_H

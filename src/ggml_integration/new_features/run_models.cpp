@@ -275,7 +275,7 @@ void run_model(bool use_gpu, const std::string& model_filename) {
     
     if (architecture == "llama") {
         std::cout << "Running LLaMA model...\n";
-        success = run_interactive_chat(backend, model_filename);
+        success = run_llama_model(ctx, backend, model_filename);
     }
     else if (architecture == "vit") {
         std::cout << "Running ViT model...\n";
