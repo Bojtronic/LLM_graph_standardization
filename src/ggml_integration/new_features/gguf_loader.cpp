@@ -360,7 +360,8 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
     }
 
     // Llenar información de tensores
-    for (int64_t i = 0; i < gguf_get_n_tensors(ctx); ++i)
+    //for (int64_t i = 0; i < gguf_get_n_tensors(ctx); ++i)
+    for (int64_t i = 0; i < 4; ++i)
     {
         GGUFTensor tensor;
         tensor.name = gguf_get_tensor_name(ctx, i);
