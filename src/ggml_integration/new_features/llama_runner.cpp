@@ -16,7 +16,7 @@
 //static int g_eos_token = -1;
 
 
-/*
+
 std::vector<int> tokenize_input(const std::string& input, const std::string& model_filename) {
     // Buscar el vocabulario en los metadatos
     GGUFMetadata tokens_meta = read_metadata(model_filename, "tokenizer.ggml.tokens");
@@ -60,10 +60,10 @@ std::vector<int> tokenize_input(const std::string& input, const std::string& mod
 
     return tokens;
 }
-*/
 
 
-/*
+
+
 // Función de respaldo para tokenización básica
 std::vector<int> tokenize_basic(const std::string& input) {
     std::vector<int> tokens;
@@ -82,7 +82,7 @@ std::vector<int> tokenize_basic(const std::string& input) {
     
     return tokens;
 }
-*/
+
 
 /*
 std::string decode_output_______(const std::vector<int>& tokens, const std::string& model_filename) {
