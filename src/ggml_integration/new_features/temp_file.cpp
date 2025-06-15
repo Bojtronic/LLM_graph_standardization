@@ -1,6 +1,20 @@
-
-
 void print_graph_data_from_file(const std::string& input_filename, const std::string& output_filename) {
+    const size_t max_elements = 20; // Mostrar solo los primeros 20 elementos
+
+    // Abrir archivos con verificación
+    std::ifstream infile(input_filename, std::ios::binary);
+    if (!infile.is_open()) {
+        std::cerr << "Error al abrir archivo de entrada: " << input_filename << std::endl;
+        return;
+    }
+
+    std::ofstream outfile(output_filename);
+    if (!outfile) {
+        std::cerr << "Error al abrir archivo de salida: " << output_filename << std::endl;
+        infile.close();
+        return;
+    }
+
     // Función helper para nombres de tipos GGUF
     auto gguf_type_name = [](enum gguf_type type) -> const char* {
         static const char* names[] = {
@@ -10,41 +24,43 @@ void print_graph_data_from_file(const std::string& input_filename, const std::st
         return (type >= GGUF_TYPE_UINT8 && type <= GGUF_TYPE_ARRAY) ? names[type] : "UNKNOWN";
     };
 
-    // Función helper para nombres de tipos GGML (tensores)
+    // Función helper para nombres de tipos GGML
     auto ggml_type_name = [](enum ggml_type type) -> const char* {
         static const char* names[] = {
-            "F32", "F16", "Q4_0", "Q4_1", "Q8_0", "Q2_K", "Q3_K", "I8", "I16", "I32"
+            "F32", "F16", "I32", "I16", "I8", 
+            "Q4_0", "Q4_1", "Q8_0", "Q2_K", "Q3_K"
         };
-        return (type >= GGML_TYPE_F32 && type <= GGML_TYPE_I32) ? names[type] : "UNKNOWN";
+        return (type >= GGML_TYPE_F32 && type <= GGML_TYPE_Q3_K) ? names[type] : "UNKNOWN";
     };
 
-    const size_t max_elements = 20; // Mostrar solo los primeros 20 elementos
-
-    // Abrir archivo de salida
-    std::ofstream outfile(output_filename);
-    if (!outfile) {
-        std::cerr << "No se pudo abrir el archivo de salida: " << output_filename << "\n";
+    // Verificar cabecera mágica
+    char magic[5];
+    infile.read(magic, 5);
+    if (std::string(magic, 5) != "GRAPH") {
+        std::cerr << "Invalid file format\n";
         return;
     }
 
-    // Abrir archivo de entrada
-    std::ifstream infile(input_filename, std::ios::binary);
-    if (!infile) {
-        std::cerr << "No se pudo abrir el archivo de entrada: " << input_filename << "\n";
-        outfile.close();
-        return;
-    }
-
-    // Leer encabezado
+    // Leer encabezado GGUF
     GGUFHeader header;
     infile.read(reinterpret_cast<char*>(&header), sizeof(GGUFHeader));
-
+    
     // Escribir el encabezado
     outfile << "\n**************************************************************\n";
     outfile << "**************************  HEADER  **************************\n";
     outfile << "**************************************************************\n";
     outfile << "Número de tensores: " << header.n_tensors << "\n";
     outfile << "Número de pares clave-valor: " << header.n_kv << "\n";
+
+    // Saltar hasta la sección de metadatos
+    std::string marker;
+    std::getline(infile, marker); // Leer hasta el fin de línea después del header
+    std::getline(infile, marker); // Leer el marcador de metadatos
+    
+    if (marker != "---METADATA---") {
+        std::cerr << "Invalid metadata marker\n";
+        return;
+    }
 
     // Leer y escribir metadatos
     outfile << "\n**************************************************************\n";
@@ -53,307 +69,304 @@ void print_graph_data_from_file(const std::string& input_filename, const std::st
     
     uint64_t metadata_count;
     infile.read(reinterpret_cast<char*>(&metadata_count), sizeof(uint64_t));
+    infile.ignore(1); // Saltar el \n
 
     for (uint64_t i = 0; i < metadata_count; ++i) {
         GGUFMetadata md;
-
+        
         // Leer clave
-        uint64_t key_size;
-        infile.read(reinterpret_cast<char*>(&key_size), sizeof(uint64_t));
-        md.key.resize(key_size);
-        infile.read(&md.key[0], key_size);
-
+        std::getline(infile, md.key);
+        
         // Leer tipo
         infile.read(reinterpret_cast<char*>(&md.type), sizeof(enum gguf_type));
+        infile.ignore(1); // Saltar \n
 
-        // Escribir metadato
-        outfile << "Clave: " << md.key << "\n";
+        outfile << "\nClave: " << md.key << "\n";
         outfile << "Tipo: " << gguf_type_name(md.type) << "\n";
-        
-        // Leer y escribir valor según tipo
+        outfile << "Valor: ";
+
+        // Leer valor según tipo
         switch (md.type) {
-            case GGUF_TYPE_UINT8:
-                infile.read(reinterpret_cast<char*>(&md.value.u8), sizeof(uint8_t));
-                outfile << "Valor: " << static_cast<int>(md.value.u8) << " (uint8)\n";
+            case GGUF_TYPE_UINT8: 
+                infile >> md.value.u8;
+                outfile << static_cast<int>(md.value.u8);
                 break;
             case GGUF_TYPE_INT8:
-                infile.read(reinterpret_cast<char*>(&md.value.i8), sizeof(int8_t));
-                outfile << "Valor: " << static_cast<int>(md.value.i8) << " (int8)\n";
+                infile >> md.value.i8;
+                outfile << static_cast<int>(md.value.i8);
                 break;
             case GGUF_TYPE_UINT16:
-                infile.read(reinterpret_cast<char*>(&md.value.u16), sizeof(uint16_t));
-                outfile << "Valor: " << md.value.u16 << " (uint16)\n";
+                infile >> md.value.u16;
+                outfile << md.value.u16;
                 break;
             case GGUF_TYPE_INT16:
-                infile.read(reinterpret_cast<char*>(&md.value.i16), sizeof(int16_t));
-                outfile << "Valor: " << md.value.i16 << " (int16)\n";
+                infile >> md.value.i16;
+                outfile << md.value.i16;
                 break;
             case GGUF_TYPE_UINT32:
-                infile.read(reinterpret_cast<char*>(&md.value.u32), sizeof(uint32_t));
-                outfile << "Valor: " << md.value.u32 << " (uint32)\n";
+                infile >> md.value.u32;
+                outfile << md.value.u32;
                 break;
             case GGUF_TYPE_INT32:
-                infile.read(reinterpret_cast<char*>(&md.value.i32), sizeof(int32_t));
-                outfile << "Valor: " << md.value.i32 << " (int32)\n";
+                infile >> md.value.i32;
+                outfile << md.value.i32;
                 break;
             case GGUF_TYPE_FLOAT32:
-                infile.read(reinterpret_cast<char*>(&md.value.f32), sizeof(float));
-                outfile << std::fixed << std::setprecision(6);
-                outfile << "Valor: " << md.value.f32 << " (float32)\n";
-                outfile.unsetf(std::ios::fixed);
-                outfile.precision(6);
+                infile >> md.value.f32;
+                outfile << std::fixed << std::setprecision(6) << md.value.f32;
                 break;
-            case GGUF_TYPE_BOOL:
-                infile.read(reinterpret_cast<char*>(&md.value.b), sizeof(bool));
-                outfile << "Valor: " << (md.value.b ? "true" : "false") << " (bool)\n";
-                break;
-            case GGUF_TYPE_STRING: {
-                uint64_t str_size;
-                infile.read(reinterpret_cast<char*>(&str_size), sizeof(uint64_t));
-                md.str.resize(str_size);
-                infile.read(&md.str[0], str_size);
-                outfile << "Valor: " << md.str << " (string)\n";
-                break;
-            }
             case GGUF_TYPE_UINT64:
-                infile.read(reinterpret_cast<char*>(&md.value.u64), sizeof(uint64_t));
-                outfile << "Valor: " << md.value.u64 << " (uint64)\n";
+                infile >> md.value.u64;
+                outfile << md.value.u64;
                 break;
             case GGUF_TYPE_INT64:
-                infile.read(reinterpret_cast<char*>(&md.value.i64), sizeof(int64_t));
-                outfile << "Valor: " << md.value.i64 << " (int64)\n";
+                infile >> md.value.i64;
+                outfile << md.value.i64;
                 break;
             case GGUF_TYPE_FLOAT64:
-                infile.read(reinterpret_cast<char*>(&md.value.f64), sizeof(double));
-                outfile << std::fixed << std::setprecision(6);
-                outfile << "Valor: " << md.value.f64 << " (float64)\n";
-                outfile.unsetf(std::ios::fixed);
-                outfile.precision(6);
+                infile >> md.value.f64;
+                outfile << std::fixed << std::setprecision(6) << md.value.f64;
                 break;
-            case GGUF_TYPE_ARRAY: {
-                infile.read(reinterpret_cast<char*>(&md.array.type), sizeof(enum gguf_type));
-                infile.read(reinterpret_cast<char*>(&md.array.size), sizeof(size_t));
-                
-                outfile << "Tipo de array: " << gguf_type_name(md.array.type) << "\n";
-                outfile << "Tamaño del array: " << md.array.size << "\n";
-                
-                // Manejar arrays de strings
-                if (md.array.type == GGUF_TYPE_STRING) {
-                    std::vector<std::string> strings(md.array.size);
-                    outfile << "Primeros strings: [";
-                    for (size_t j = 0; j < std::min(md.array.size, max_elements); ++j) {
-                        uint64_t str_size;
-                        infile.read(reinterpret_cast<char*>(&str_size), sizeof(uint64_t));
-                        strings[j].resize(str_size);
-                        infile.read(&strings[j][0], str_size);
-                        outfile << "\"" << strings[j] << "\" ";
-                    }
-                    outfile << "...]\n";
-                } 
-                // Manejar arrays numéricos
-                else {
-                    outfile << "Primeros valores: [";
-                    size_t element_size = type_size(md.array.type);
-                    for (size_t j = 0; j < std::min(md.array.size, max_elements); ++j) {
-                        switch (md.array.type) {
-                            case GGUF_TYPE_UINT8: {
-                                uint8_t val;
-                                infile.read(reinterpret_cast<char*>(&val), sizeof(uint8_t));
-                                outfile << static_cast<int>(val) << " ";
-                                break;
-                            }
-                            case GGUF_TYPE_INT8: {
-                                int8_t val;
-                                infile.read(reinterpret_cast<char*>(&val), sizeof(int8_t));
-                                outfile << static_cast<int>(val) << " ";
-                                break;
-                            }
-                            case GGUF_TYPE_UINT16: {
-                                uint16_t val;
-                                infile.read(reinterpret_cast<char*>(&val), sizeof(uint16_t));
-                                outfile << val << " ";
-                                break;
-                            }
-                            case GGUF_TYPE_INT16: {
-                                int16_t val;
-                                infile.read(reinterpret_cast<char*>(&val), sizeof(int16_t));
-                                outfile << val << " ";
-                                break;
-                            }
-                            case GGUF_TYPE_UINT32: {
-                                uint32_t val;
-                                infile.read(reinterpret_cast<char*>(&val), sizeof(uint32_t));
-                                outfile << val << " ";
-                                break;
-                            }
-                            case GGUF_TYPE_INT32: {
-                                int32_t val;
-                                infile.read(reinterpret_cast<char*>(&val), sizeof(int32_t));
-                                outfile << val << " ";
-                                break;
-                            }
-                            case GGUF_TYPE_FLOAT32: {
-                                float val;
-                                infile.read(reinterpret_cast<char*>(&val), sizeof(float));
-                                outfile << std::fixed << std::setprecision(6) << val << " ";
-                                outfile.unsetf(std::ios::fixed);
-                                break;
-                            }
-                            case GGUF_TYPE_FLOAT64: {
-                                double val;
-                                infile.read(reinterpret_cast<char*>(&val), sizeof(double));
-                                outfile << std::fixed << std::setprecision(6) << val << " ";
-                                outfile.unsetf(std::ios::fixed);
-                                break;
-                            }
-                            default:
-                                // Para tipos no soportados, saltar los bytes
-                                infile.seekg(element_size, std::ios::cur);
-                                outfile << "[binary data] ";
-                                break;
-                        }
-                    }
-                    // Saltar los elementos restantes del array
-                    if (md.array.size > max_elements) {
-                        infile.seekg((md.array.size - max_elements) * element_size, std::ios::cur);
-                    }
-                    outfile << "...]\n";
-                }
+            case GGUF_TYPE_BOOL: {
+                std::string val;
+                infile >> val;
+                md.value.b = (val == "true");
+                outfile << (md.value.b ? "true" : "false");
                 break;
             }
-            default:
-                outfile << "Valor: [tipo desconocido]\n";
+            case GGUF_TYPE_STRING:
+                std::getline(infile, md.str);
+                outfile << md.str;
                 break;
+            case GGUF_TYPE_ARRAY:
+                infile.read(reinterpret_cast<char*>(&md.array.type), sizeof(enum gguf_type));
+                infile.read(reinterpret_cast<char*>(&md.array.size), sizeof(size_t));
+                infile.ignore(1); // Saltar \n
+                
+                outfile << "Array[" << md.array.size << "] of " << gguf_type_name(md.array.type) << "\n";
+                
+                if (md.array.type == GGUF_TYPE_STRING) {
+                    outfile << "  [";
+                    for (size_t j = 0; j < std::min(md.array.size, max_elements); ++j) {
+                        std::string str;
+                        std::getline(infile, str);
+                        if (j > 0) outfile << ", ";
+                        outfile << "\"" << str << "\"";
+                    }
+                    if (md.array.size > max_elements) outfile << ", ...";
+                    outfile << "]";
+                } else {
+                    outfile << "  [";
+                    const size_t element_size = gguf_type_size(md.array.type);
+                    
+                    if (element_size > 0) {
+                        for (size_t j = 0; j < std::min(md.array.size, max_elements); ++j) {
+                            if (j > 0) outfile << ", ";
+                            
+                            switch (md.array.type) {
+                                case GGUF_TYPE_UINT8: { 
+                                    uint8_t val; 
+                                    infile.read(reinterpret_cast<char*>(&val), sizeof(uint8_t)); 
+                                    outfile << static_cast<int>(val); 
+                                    break; 
+                                }
+                                case GGUF_TYPE_INT8: { 
+                                    int8_t val; 
+                                    infile.read(reinterpret_cast<char*>(&val), sizeof(int8_t)); 
+                                    outfile << static_cast<int>(val); 
+                                    break; 
+                                }
+                                case GGUF_TYPE_UINT16: { 
+                                    uint16_t val; 
+                                    infile.read(reinterpret_cast<char*>(&val), sizeof(uint16_t)); 
+                                    outfile << val; 
+                                    break; 
+                                }
+                                case GGUF_TYPE_INT16: { 
+                                    int16_t val; 
+                                    infile.read(reinterpret_cast<char*>(&val), sizeof(int16_t)); 
+                                    outfile << val; 
+                                    break; 
+                                }
+                                case GGUF_TYPE_UINT32: { 
+                                    uint32_t val; 
+                                    infile.read(reinterpret_cast<char*>(&val), sizeof(uint32_t)); 
+                                    outfile << val; 
+                                    break; 
+                                }
+                                case GGUF_TYPE_INT32: { 
+                                    int32_t val; 
+                                    infile.read(reinterpret_cast<char*>(&val), sizeof(int32_t)); 
+                                    outfile << val; 
+                                    break; 
+                                }
+                                case GGUF_TYPE_FLOAT32: { 
+                                    float val; 
+                                    infile.read(reinterpret_cast<char*>(&val), sizeof(float)); 
+                                    outfile << std::fixed << std::setprecision(6) << val; 
+                                    break; 
+                                }
+                                case GGUF_TYPE_UINT64: { 
+                                    uint64_t val; 
+                                    infile.read(reinterpret_cast<char*>(&val), sizeof(uint64_t)); 
+                                    outfile << val; 
+                                    break; 
+                                }
+                                case GGUF_TYPE_INT64: { 
+                                    int64_t val; 
+                                    infile.read(reinterpret_cast<char*>(&val), sizeof(int64_t)); 
+                                    outfile << val; 
+                                    break; 
+                                }
+                                case GGUF_TYPE_FLOAT64: { 
+                                    double val; 
+                                    infile.read(reinterpret_cast<char*>(&val), sizeof(double)); 
+                                    outfile << std::fixed << std::setprecision(6) << val; 
+                                    break; 
+                                }
+                                case GGUF_TYPE_BOOL: { 
+                                    bool val; 
+                                    infile.read(reinterpret_cast<char*>(&val), sizeof(bool)); 
+                                    outfile << (val ? "true" : "false"); 
+                                    break; 
+                                }
+                                default:
+                                    infile.ignore(md.array.size * element_size);
+                                    outfile << "<binary data>";
+                                    j = md.array.size; // Salir del bucle
+                            }
+                        }
+                    } else {
+                        infile.ignore(md.array.size);
+                        outfile << "<unsupported array type>";
+                    }
+                    
+                    if (md.array.size > max_elements) outfile << ", ...";
+                    outfile << "]";
+                }
+                break;
+            default:
+                std::cerr << "Unknown metadata type: " << md.type << "\n";
+                continue;
         }
-        outfile << "-----------------------------------\n";
+        
+        
+        std::getline(infile, marker);
+        
+        infile.ignore(1);
+        // Leer el marcador de fin de item
+        std::getline(infile, marker);
+        
+
+        if (marker != "---END_ITEM---") {
+            std::cerr << "Invalid item delimiter (end item). Found: '" << marker << "'\n";
+            return;
+        }
+
+        outfile << "\n-----------------------------------\n";
+    }
+
+    // Buscar inicio de tensores
+    std::getline(infile, marker); // Leer hasta el siguiente marcador
+    if (marker != "---TENSORS---") {
+        std::cerr << "Invalid tensors marker\n";
+        return;
     }
 
     // Leer y escribir tensores
     outfile << "\n**************************************************************\n";
-    outfile << "*************************  TENSORS  **************************\n";
+    outfile << "*************************  TENSORS  *************************\n";
     outfile << "**************************************************************\n";
     
     uint64_t tensors_count;
-    infile.read(reinterpret_cast<char*>(&tensors_count), sizeof(uint64_t));
+    infile >> tensors_count;
+    infile.ignore(1); // Saltar el \n
 
     for (uint64_t i = 0; i < tensors_count; ++i) {
+        // Verificar delimitador de inicio
+        std::getline(infile, marker);
+        if (marker != "---BEGIN_TENSOR---") {
+            std::cerr << "Invalid tensor start marker\n";
+            return;
+        }
+
         GGUFTensor tensor;
-
-        // Leer nombre
-        uint64_t name_size;
-        infile.read(reinterpret_cast<char*>(&name_size), sizeof(uint64_t));
-        tensor.name.resize(name_size);
-        infile.read(&tensor.name[0], name_size);
-
-        // Leer información del tensor
-        infile.read(reinterpret_cast<char*>(&tensor.type), sizeof(enum ggml_type));
-        infile.read(reinterpret_cast<char*>(&tensor.size), sizeof(size_t));
-        infile.read(reinterpret_cast<char*>(&tensor.n_dims), sizeof(int32_t));
-
-        // Leer dimensiones
-        tensor.dims.resize(tensor.n_dims);
-        infile.read(reinterpret_cast<char*>(tensor.dims.data()), tensor.n_dims * sizeof(int64_t));
-
-        // Leer operación
-        infile.read(reinterpret_cast<char*>(&tensor.op), sizeof(enum ggml_op));
-
-        // Leer tensores fuente
-        uint64_t src_count;
-        infile.read(reinterpret_cast<char*>(&src_count), sizeof(uint64_t));
-        tensor.src_tensors.resize(src_count);
-        for (uint64_t j = 0; j < src_count; ++j) {
-            uint64_t src_size;
-            infile.read(reinterpret_cast<char*>(&src_size), sizeof(uint64_t));
-            tensor.src_tensors[j].resize(src_size);
-            infile.read(&tensor.src_tensors[j][0], src_size);
-        }
-
-        // Leer tensor destino
-        uint64_t dst_size;
-        infile.read(reinterpret_cast<char*>(&dst_size), sizeof(uint64_t));
-        tensor.dst_tensor.resize(dst_size);
-        infile.read(&tensor.dst_tensor[0], dst_size);
-
-        // Escribir información del tensor
-        outfile << "Nombre: " << tensor.name << "\n";
-        outfile << "Tipo: " << ggml_type_name(tensor.type) << "\n";
-        outfile << "Tamaño: " << std::fixed << std::setprecision(2) 
-               << tensor.size / 1024.0f / 1024.0f << " MB\n";
-        outfile << "Número de dimensiones: " << tensor.n_dims << "\n";
-        outfile << "Tamaño de cada dimensión: ";
-        for (const auto &dim : tensor.dims) {
-            outfile << dim << " ";
-        }
-        outfile << "\n";
-
-        // Leer y mostrar primeros elementos del tensor
-        outfile << "Datos (primeros elementos): ";
+        std::string line;
         
-        size_t element_count = tensor.size / type_size(static_cast<gguf_type>(tensor.type));
-        if (element_count == 0) element_count = tensor.size; // fallback
-
-        for (size_t j = 0; j < std::min(element_count, max_elements); ++j) {
-            switch (tensor.type) {
-                case GGML_TYPE_F32: {
-                    float val;
-                    infile.read(reinterpret_cast<char*>(&val), sizeof(float));
-                    outfile << val << " ";
-                    break;
+        // Leer información básica
+        while (std::getline(infile, line)) {
+            if (line == "DATA_START:") break; // Fin de la sección de información
+            
+            if (line.find("NAME:") == 0) {
+                tensor.name = line.substr(5);
+                outfile << "\nTensor: " << tensor.name << "\n";
+            }
+            else if (line.find("TYPE:") == 0) {
+                tensor.type = static_cast<enum ggml_type>(std::stoi(line.substr(5)));
+                outfile << "Tipo: " << ggml_type_name(tensor.type) << "\n";
+            }
+            else if (line.find("SIZE:") == 0) {
+                tensor.size = std::stoull(line.substr(5));
+                outfile << "Tamaño: " << tensor.size << " bytes\n";
+            }
+            else if (line.find("NDIMS:") == 0) {
+                tensor.n_dims = std::stoi(line.substr(6));
+                outfile << "Dimensiones: " << tensor.n_dims << "\n";
+            }
+            else if (line.find("DIMS:") == 0) {
+                std::istringstream dims_stream(line.substr(5));
+                int64_t dim;
+                outfile << "Tamaños: [";
+                while (dims_stream >> dim) {
+                    tensor.dims.push_back(dim);
+                    if (tensor.dims.size() > 1) outfile << " × ";
+                    outfile << dim;
                 }
-                case GGML_TYPE_I32: {
-                    int32_t val;
-                    infile.read(reinterpret_cast<char*>(&val), sizeof(int32_t));
-                    outfile << val << " ";
-                    break;
-                }
-                case GGML_TYPE_F16: {
-                    uint16_t val;
-                    infile.read(reinterpret_cast<char*>(&val), sizeof(uint16_t));
-                    outfile << val << " ";
-                    break;
-                }
-                case GGML_TYPE_I8: {
-                    int8_t val;
-                    infile.read(reinterpret_cast<char*>(&val), sizeof(int8_t));
-                    outfile << static_cast<int>(val) << " ";
-                    break;
-                }
-                case GGML_TYPE_Q4_0:
-                case GGML_TYPE_Q4_1:
-                case GGML_TYPE_Q8_0:
-                case GGML_TYPE_Q2_K:
-                case GGML_TYPE_Q3_K: {
-                    uint8_t val;
-                    infile.read(reinterpret_cast<char*>(&val), sizeof(uint8_t));
-                    outfile << static_cast<int>(val) << " ";
-                    break;
-                }
-                default: {
-                    uint8_t val;
-                    infile.read(reinterpret_cast<char*>(&val), sizeof(uint8_t));
-                    outfile << static_cast<int>(val) << " ";
-                    break;
-                }
+                outfile << "]\n";
+            }
+            else if (line.find("OP:") == 0) {
+                tensor.op = static_cast<enum ggml_op>(std::stoi(line.substr(3)));
+                outfile << "Operación: " << tensor.op << "\n";
             }
         }
 
-        // Saltar los elementos restantes del tensor
-        if (element_count > max_elements) {
-            size_t elements_to_skip = element_count - max_elements;
-            size_t element_size = type_size(static_cast<gguf_type>(tensor.type));
-            if (element_size == 0) element_size = 1; // fallback
-            infile.seekg(elements_to_skip * element_size, std::ios::cur);
-            outfile << "... [total: " << element_count << " elementos]";
+        // Leer datos del tensor (solo información básica, no los datos binarios)
+        if (line != "DATA_START:") {
+            std::cerr << "Invalid data start marker\n";
+            return;
         }
+
+        // Saltar datos binarios
+        size_t element_count = tensor.size / sizeof(float);
+        infile.ignore(element_count * sizeof(float));
         
-        outfile << "\n --------------------------------------------------------------- \n";
+        // Verificar delimitador de fin de datos
+        std::getline(infile, line); // Saltar restos de datos binarios
+        std::getline(infile, line);
+        if (line != "DATA_END") {
+            std::cerr << "Invalid data end marker\n";
+            return;
+        }
+
+        // Verificar delimitador final de tensor
+        std::getline(infile, line);
+        if (line != "---END_TENSOR---") {
+            std::cerr << "Invalid tensor end marker\n";
+            return;
+        }
+
+        outfile << "-----------------------------------\n";
     }
 
     // Cerrar archivos
     infile.close();
     outfile.close();
-    std::cout << "La información de GraphData se ha escrito en el archivo: " << output_filename << "\n";
+    
+    std::cout << "La información del archivo " << input_filename 
+              << " se ha escrito en: " << output_filename << "\n";
 }
+
+
 
 
 
