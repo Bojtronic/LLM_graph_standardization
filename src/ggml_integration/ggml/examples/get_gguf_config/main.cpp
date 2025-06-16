@@ -59,7 +59,7 @@ int main() {
     }
     std::cout << "Graph data successfully written to: " << graph_path << std::endl;
 
-    print_graph_data_from_file(graph_path.string(), graph_info_path.string());
+    print_tensor_data_from_file(graph_path.string(), graph_info_path.string());
 
 
     // Liberar el contexto GGUF cuando ya no sea necesario

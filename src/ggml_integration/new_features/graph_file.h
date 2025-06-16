@@ -38,6 +38,7 @@ template<typename T>
 std::vector<T> read_array(std::ifstream& in, size_t size);
 
 void print_graph_data_from_struct(const GraphData& graph_data, const char *output_filename);
-void print_graph_data_from_file(const std::string& input_filename, const std::string& output_filename);
+void print_metadata_from_file(const std::string& input_filename, const std::string& output_filename);
+void print_tensor_data_from_file(const std::string &input_filename, const std::string &output_filename);
 
 #endif // GRAPH_FILE_H
