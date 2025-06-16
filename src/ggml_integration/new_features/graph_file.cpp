@@ -650,15 +650,14 @@ std::vector<T> read_array(std::ifstream &in, size_t size)
 
 void print_graph_data_from_struct(const GraphData &graph_data, const char *output_filename)
 {
-    // Abrir el archivo de salida
     std::ofstream outfile(output_filename);
     if (!outfile)
     {
-        std::cerr << "No se pudo abrir el archivo de salida: " << output_filename << "\n";
+        std::cerr << "The output file could not be opened: " << output_filename << "\n";
         return;
     }
 
-    // Función helper para nombres de tipos GGUF
+    // Helper function for GGUF type names
     auto gguf_type_name = [](enum gguf_type type) -> const char *
     {
         static const char *names[] = {
@@ -667,79 +666,77 @@ void print_graph_data_from_struct(const GraphData &graph_data, const char *outpu
         return (type >= GGUF_TYPE_UINT8 && type <= GGUF_TYPE_ARRAY) ? names[type] : "UNKNOWN";
     };
 
-    const size_t max_elements = 20; // Mostrar solo los primeros 20 elementos
+    const size_t max_elements = 20; // Show only the first 20 items
 
-    // Escribir el encabezado
     outfile << "\n**************************************************************\n";
     outfile << "**************************  HEADER  **************************\n";
     outfile << "**************************************************************\n";
-    outfile << "Número de tensores: " << graph_data.header.n_tensors << "\n";
-    outfile << "Número de pares clave-valor: " << graph_data.header.n_kv << "\n";
+    outfile << "Number of tensors:" << graph_data.header.n_tensors << "\n";
+    outfile << "Number of key-value pairs: " << graph_data.header.n_kv << "\n";
 
-    // Escribir los metadatos (pares clave-valor)
     outfile << "\n**************************************************************\n";
     outfile << "*************************  METADATA  *************************\n";
     outfile << "**************************************************************\n";
 
     for (const auto &md : graph_data.metadata)
     {
-        outfile << "Clave: " << md.key << "\n";
-        outfile << "Tipo: " << gguf_type_name(md.type) << "\n";
+        outfile << "Key: " << md.key << "\n";
+        outfile << "Value: " << gguf_type_name(md.type) << "\n";
 
         switch (md.type)
         {
         case GGUF_TYPE_UINT8:
-            outfile << "Valor: " << static_cast<int>(md.value.u8) << " (uint8)\n";
+            outfile << "Value: " << static_cast<int>(md.value.u8) << " (uint8)\n";
             break;
         case GGUF_TYPE_INT8:
-            outfile << "Valor: " << static_cast<int>(md.value.i8) << " (int8)\n";
+            outfile << "Value: " << static_cast<int>(md.value.i8) << " (int8)\n";
             break;
         case GGUF_TYPE_UINT16:
-            outfile << "Valor: " << md.value.u16 << " (uint16)\n";
+            outfile << "Value: " << md.value.u16 << " (uint16)\n";
             break;
         case GGUF_TYPE_INT16:
-            outfile << "Valor: " << md.value.i16 << " (int16)\n";
+            outfile << "Value: " << md.value.i16 << " (int16)\n";
             break;
         case GGUF_TYPE_UINT32:
-            outfile << "Valor: " << md.value.u32 << " (uint32)\n";
+            outfile << "Value: " << md.value.u32 << " (uint32)\n";
             break;
         case GGUF_TYPE_INT32:
-            outfile << "Valor: " << md.value.i32 << " (int32)\n";
+            outfile << "Value: " << md.value.i32 << " (int32)\n";
             break;
         case GGUF_TYPE_FLOAT32:
             outfile << std::fixed << std::setprecision(6);
-            outfile << "Valor: " << md.value.f32 << " (float32)\n";
+            outfile << "Value: " << md.value.f32 << " (float32)\n";
             outfile.unsetf(std::ios::fixed);
             outfile.precision(6);
             break;
         case GGUF_TYPE_BOOL:
-            outfile << "Valor: " << (md.value.b ? "true" : "false") << " (bool)\n";
+            outfile << "Value: " << (md.value.b ? "true" : "false") << " (bool)\n";
             break;
         case GGUF_TYPE_STRING:
-            outfile << "Valor: " << md.str << " (string)\n";
+            outfile << "Value: " << md.str << " (string)\n";
             break;
         case GGUF_TYPE_UINT64:
-            outfile << "Valor: " << md.value.u64 << " (uint64)\n";
+            outfile << "Value: " << md.value.u64 << " (uint64)\n";
             break;
         case GGUF_TYPE_INT64:
-            outfile << "Valor: " << md.value.i64 << " (int64)\n";
+            outfile << "Value: " << md.value.i64 << " (int64)\n";
             break;
         case GGUF_TYPE_FLOAT64:
             outfile << std::fixed << std::setprecision(6);
-            outfile << "Valor: " << md.value.f64 << " (float64)\n";
+            outfile << "Value: " << md.value.f64 << " (float64)\n";
             outfile.unsetf(std::ios::fixed);
             outfile.precision(6);
             break;
         case GGUF_TYPE_ARRAY:
-            outfile << "Tipo de array: " << gguf_type_name(md.array.type) << "\n";
-            outfile << "Tamaño del array: " << md.array.size << "\n";
+            outfile << "Array type: " << gguf_type_name(md.array.type) << "\n";
+            outfile << "Array size: " << md.array.size << "\n";
 
-            // Mostrar primeros elementos para tipos conocidos
+            // Show first elements for known types
             if (md.array.type == GGUF_TYPE_STRING)
             {
                 if (const auto *strs = std::get_if<std::vector<std::string>>(&md.array.data))
                 {
-                    outfile << "Primeros strings: [";
+                    outfile << "First strings: [";
                     for (size_t i = 0; i < std::min(strs->size(), max_elements); ++i)
                     {
                         outfile << "\"" << (*strs)[i] << "\" ";
@@ -752,7 +749,7 @@ void print_graph_data_from_struct(const GraphData &graph_data, const char *outpu
                 if (const auto *vals = std::get_if<std::vector<float>>(&md.array.data))
                 {
                     outfile << std::fixed << std::setprecision(6);
-                    outfile << "Primeros valores: [";
+                    outfile << "First values: [";
                     for (size_t i = 0; i < std::min(vals->size(), max_elements); ++i)
                     {
                         outfile << (*vals)[i] << " ";
@@ -765,7 +762,7 @@ void print_graph_data_from_struct(const GraphData &graph_data, const char *outpu
             {
                 if (const auto *vals = std::get_if<std::vector<int32_t>>(&md.array.data))
                 {
-                    outfile << "Primeros valores: [";
+                    outfile << "First values: [";
                     for (size_t i = 0; i < std::min(vals->size(), max_elements); ++i)
                     {
                         outfile << (*vals)[i] << " ";
@@ -777,7 +774,7 @@ void print_graph_data_from_struct(const GraphData &graph_data, const char *outpu
             {
                 if (const auto *vals = std::get_if<std::vector<uint8_t>>(&md.array.data))
                 {
-                    outfile << "Primeros valores: [";
+                    outfile << "First values: [";
                     for (size_t i = 0; i < std::min(vals->size(), max_elements); ++i)
                     {
                         outfile << static_cast<int>((*vals)[i]) << " ";
@@ -787,29 +784,28 @@ void print_graph_data_from_struct(const GraphData &graph_data, const char *outpu
             }
             else
             {
-                outfile << "[Datos binarios de tipo " << gguf_type_name(md.array.type) << "]\n";
+                outfile << "[Binary data type " << gguf_type_name(md.array.type) << "]\n";
             }
             break;
         default:
-            outfile << "Valor: [tipo desconocido]\n";
+            outfile << "Value: [unknown type]\n";
             break;
         }
         outfile << "-----------------------------------\n";
     }
 
-    // Escribir información de tensores
     outfile << "\n**************************************************************\n";
     outfile << "*************************  TENSORS  **************************\n";
     outfile << "**************************************************************\n";
 
     for (const auto &tensor : graph_data.tensors)
     {
-        outfile << "Nombre: " << tensor.name << "\n";
-        outfile << "Tipo: " << ggml_type_name(tensor.type) << "\n";
-        outfile << "Tamaño: " << std::fixed << std::setprecision(2)
+        outfile << "Name: " << tensor.name << "\n";
+        outfile << "Type: " << ggml_type_name(tensor.type) << "\n";
+        outfile << "Size: " << std::fixed << std::setprecision(2)
                 << tensor.size / 1024.0f / 1024.0f << " MB\n";
-        outfile << "Número de dimensiones: " << tensor.n_dims << "\n";
-        outfile << "Tamaño de cada dimensión: ";
+        outfile << "Number of dimensions: " << tensor.n_dims << "\n";
+        outfile << "Size of each dimension: ";
         for (const auto &dim : tensor.dims)
         {
             outfile << dim << " ";
@@ -817,8 +813,8 @@ void print_graph_data_from_struct(const GraphData &graph_data, const char *outpu
 
         outfile << "\n";
 
-        // Mostrar los primeros elementos del tensor según su tipo
-        outfile << "Datos (primeros elementos): ";
+        // Display the first elements of the tensor according to its type
+        outfile << "Data (first elements): ";
 
         switch (tensor.type)
         {
@@ -862,7 +858,7 @@ void print_graph_data_from_struct(const GraphData &graph_data, const char *outpu
             }
             break;
 
-        // Tipos cuantizados
+        // Quantized types
         case GGML_TYPE_Q4_0:
         case GGML_TYPE_Q4_1:
         case GGML_TYPE_Q8_0:
@@ -871,7 +867,7 @@ void print_graph_data_from_struct(const GraphData &graph_data, const char *outpu
             if (const auto *data = std::get_if<std::vector<uint8_t>>(&tensor.data))
             {
                 // outfile << "[Datos cuantizados - " << data->size() << " bytes]";
-                outfile << "[Datos cuantizados: se toman en grupos de 8 bits en este caso]  ";
+                outfile << "[Quantized data: taken in groups of 8 bits in this case]  ";
                 for (size_t i = 0; i < std::min(data->size(), max_elements); ++i)
                 {
                     outfile << static_cast<uint8_t>((*data)[i]) << " ";
@@ -882,19 +878,19 @@ void print_graph_data_from_struct(const GraphData &graph_data, const char *outpu
         default:
             if (const auto *data = std::get_if<std::vector<uint8_t>>(&tensor.data))
             {
-                outfile << "[Datos binarios - " << data->size() << " bytes]";
+                outfile << "[Binary data - " << data->size() << " bytes]";
             }
             break;
         }
 
-        // Indicar si hay más elementos
+        // Indicate if there are more items
         if (std::visit([](const auto &v)
                        { return v.size(); }, tensor.data) > max_elements)
         {
             outfile << "... [total: "
                     << std::visit([](const auto &v)
                                   { return v.size(); }, tensor.data)
-                    << " elementos]";
+                    << " elements]";
         }
 
         outfile << "\n --------------------------------------------------------------- \n";
@@ -905,7 +901,7 @@ void print_graph_data_from_struct(const GraphData &graph_data, const char *outpu
 
     // Cerrar el archivo de salida
     outfile.close();
-    std::cout << "La información de GraphData se ha escrito en el archivo: " << output_filename << "\n";
+    std::cout << "GraphData information has been written to the file: " << output_filename << "\n";
 }
 
 void print_metadata_from_file(const std::string &input_filename, const std::string &output_filename)
@@ -914,7 +910,7 @@ void print_metadata_from_file(const std::string &input_filename, const std::stri
     std::ofstream outfile(output_filename);
     if (!outfile.is_open())
     {
-        std::cerr << "Error al abrir archivo de salida: " << output_filename << std::endl;
+        std::cerr << "Error opening output file: " << output_filename << std::endl;
         return;
     }
 
@@ -932,9 +928,9 @@ void print_metadata_from_file(const std::string &input_filename, const std::stri
     }
 
     // Write metadata to file
-    outfile << "\nClave: " << md.key << "\n";
-    outfile << "Tipo: " << gguf_type_name(md.type) << "\n";
-    outfile << "Valor: ";
+    outfile << "\nKey: " << md.key << "\n";
+    outfile << "Type: " << gguf_type_name(md.type) << "\n";
+    outfile << "Value: ";
 
     switch (md.type)
     {
@@ -1064,8 +1060,8 @@ void print_metadata_from_file(const std::string &input_filename, const std::stri
     outfile.flush();
     outfile.close();
 
-    std::cout << "La información del archivo " << input_filename
-              << " se ha escrito en: " << output_filename << "\n";
+    std::cout << "File information " << input_filename
+              << " has been written in: " << output_filename << "\n";
 }
 
 void print_tensor_data_from_file(const std::string &input_filename, const std::string &output_filename)
@@ -1074,11 +1070,11 @@ void print_tensor_data_from_file(const std::string &input_filename, const std::s
     std::ofstream outfile(output_filename);
     if (!outfile.is_open())
     {
-        std::cerr << "Error al abrir archivo de salida: " << output_filename << std::endl;
+        std::cerr << "Error opening output file: " << output_filename << std::endl;
         return;
     }
 
-    const size_t max_elements = 50; // Límite de elementos a mostrar
+    const size_t max_elements = 50; // Limit of items to display
 
     // Read the tensor
     GGUFTensor tensor = read_tensor(input_filename, "blk.0.ffn_down.weight");
@@ -1086,17 +1082,17 @@ void print_tensor_data_from_file(const std::string &input_filename, const std::s
     // Check if tensor was found
     if (tensor.name.empty())
     {
-        std::cout << "Tensor no encontrado en el archivo.\n";
+        std::cout << "Tensor not found in file.\n";
         outfile.close();
         return;
     }
 
     // Write tensor info to file
     outfile << "\nTensor: " << tensor.name << "\n";
-    outfile << "Tipo original: " << ggml_type_name(tensor.type) << " (almacenado como F32)\n";
-    outfile << "Tamaño: " << tensor.size << " bytes\n";
-    outfile << "Dimensiones: " << tensor.n_dims << "\n";
-    outfile << "Forma: [";
+    outfile << "Original type: " << ggml_type_name(tensor.type) << " (stored as F32)\n";
+    outfile << "Size: " << tensor.size << " bytes\n";
+    outfile << "Dimensions: " << tensor.n_dims << "\n";
+    outfile << "Shape: [";
     for (size_t i = 0; i < tensor.dims.size(); ++i)
     {
         if (i > 0)
@@ -1104,10 +1100,10 @@ void print_tensor_data_from_file(const std::string &input_filename, const std::s
         outfile << tensor.dims[i];
     }
     outfile << "]\n";
-    outfile << "Operación: " << tensor.op << "\n";
+    outfile << "Operation: " << tensor.op << "\n";
 
     // Handle tensor data
-    outfile << "Datos (primeros " << max_elements << " elementos):\n";
+    outfile << "Data (first " << max_elements << " elements):\n";
 
     if (auto float_data = tensor.get_data<float>())
     {
@@ -1128,7 +1124,7 @@ void print_tensor_data_from_file(const std::string &input_filename, const std::s
     }
     else
     {
-        outfile << "<no se pudieron leer los datos del tensor>\n";
+        outfile << "<The tensor data could not be read>\n";
     }
 
     outfile << "\n-----------------------------------\n";
@@ -1136,5 +1132,5 @@ void print_tensor_data_from_file(const std::string &input_filename, const std::s
     outfile.flush();
     outfile.close();
 
-    std::cout << "La información del tensor se ha escrito en: " << output_filename << "\n";
+    std::cout << "The tensor information has been written to: " << output_filename << "\n";
 }

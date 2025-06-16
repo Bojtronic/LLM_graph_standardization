@@ -38,13 +38,18 @@ int main(int argc, char** argv) {
             .ctx = &ctx,
         };
         
+
         ctx_gguf = gguf_init_from_file(params.model_path.c_str(), gguf_params);
         if (!ctx_gguf) {
             throw std::runtime_error("Failed to load GGUF file: " + params.model_path);
         }
 
+        std::cout << "The GGUF context of the file was created " << std::endl; 
+
         // Procesar datos del grafo
         GraphData graph_data = gguf_graph_data(ctx_gguf, params.model_path.c_str());
+
+        std::cout << "The GraphData structure was created from the GGUF context " << std::endl;
 
         // Generar nombre del archivo .graph
         fs::path graph_path = fs::path(params.model_path).replace_extension(".graph");
@@ -53,8 +58,8 @@ int main(int argc, char** argv) {
         if (!write_graph_data(graph_path.string(), graph_data)) {
             throw std::runtime_error("Failed to write graph data to: " + graph_path.string());
         }
-        std::cout << "Graph data successfully written to: " << graph_path << std::endl;
 
+        std::cout << "GraphData file (.graph) successfully written to: " << graph_path << std::endl;
 
 
         // Ejecutar modelo

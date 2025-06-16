@@ -525,7 +525,7 @@ bool run_llama_model(ggml_context* ctx, ggml_backend_t backend, const std::strin
     std::vector<int> response_tokens;
     bool generating = true;
             
-    std::cout << "Respuesta del modelo: ";
+    std::cout << "Model response: ";
 
    
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////
