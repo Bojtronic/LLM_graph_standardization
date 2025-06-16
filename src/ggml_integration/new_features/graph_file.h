@@ -6,39 +6,48 @@
 #include "graph_data_structs.h"
 
 /**
- * @brief Escribe datos de grafo en un archivo binario .graph
- * @param filename Nombre del archivo de salida (ej. "model.graph")
- * @param graph_data Estructura GraphData a serializar
- * @return true si tiene éxito, false en caso de error
+ * @brief Writes graph data to a binary .graph file
+ * @param filename Output filename (e.g., "model.graph")
+ * @param graph_data GraphData structure to serialize
+ * @return true if successful, false on error
  */
 bool write_graph_data(const std::string& filename, const GraphData& graph_data);
 
 /**
- * @brief Lee una entrada de metadata por clave desde un archivo .graph
- * @param filename Nombre del archivo .graph de entrada
- * @param key Clave de metadata a buscar
- * @return Estructura GGUFMetadata si se encuentra, o metadata vacía con type=GGUF_TYPE_COUNT si no se encuentra
+ * @brief Reads a metadata entry by key from a .graph file
+ * @param filename Input .graph filename
+ * @param key Metadata key to search for
+ * @return GGUFMetadata structure if found, or empty metadata with type=GGUF_TYPE_COUNT if not found
  */
 GGUFMetadata read_metadata(const std::string& filename, const std::string& key);
 
 /**
- * @brief Lee un tensor por nombre desde un archivo .graph
- * @param filename Nombre del archivo .graph de entrada
- * @param name Nombre del tensor a buscar
- * @return Estructura GGUFTensor si se encuentra, o tensor vacío con name="" si no se encuentra
+ * @brief Reads a tensor by name from a .graph file
+ * @param filename Input .graph filename
+ * @param name Tensor name to search for
+ * @return GGUFTensor structure if found, or empty tensor with name="" if not found
  */
 GGUFTensor read_tensor(const std::string& filename, const std::string& name);
 
-// Funciones auxiliares 
-void skip_metadata(std::ifstream& in);
-size_t type_size(enum gguf_type type);
-size_t ggml_type_size(enum ggml_type type);
+// Helper functions for graph file operations
+void skip_metadata(std::ifstream& in);  // Skips metadata section in input stream
+size_t type_size(enum gguf_type type);  // Returns byte size for GGUF data types
+size_t ggml_type_size(enum ggml_type type);  // Returns byte size for GGML data types
     
+/**
+ * @brief Reads an array of specified type from input stream
+ * @tparam T Data type to read
+ * @param in Input file stream
+ * @param size Number of elements to read
+ * @return Vector containing the read data
+ */
 template<typename T>
 std::vector<T> read_array(std::ifstream& in, size_t size);
 
-void print_graph_data_from_struct(const GraphData& graph_data, const char *output_filename);
-void print_metadata_from_file(const std::string& input_filename, const std::string& output_filename);
-void print_tensor_data_from_file(const std::string &input_filename, const std::string &output_filename);
+// Debug/utility functions
+void print_graph_data_from_struct(const GraphData& graph_data, const char *output_filename);  // Prints graph structure to file
+void print_metadata_from_file(const std::string& input_filename, const std::string& output_filename);  // Prints metadata to file
+void print_tensor_data_from_file(const std::string &input_filename, const std::string &output_filename);  // Prints tensor data to file
 
 #endif // GRAPH_FILE_H
+

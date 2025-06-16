@@ -79,17 +79,17 @@ enum llm_arch {
  */
 struct ModelConfig {
     enum llm_arch arch;
-    std::string arch_name;      // Nombre original de la arquitectura
-    bool has_cls_token;         // Para modelos con token de clase
-    bool is_causal;             // Para atención causal
-    bool is_encoder_only;       // Para modelos solo encoder
-    bool is_decoder_only;       // Para modelos solo decoder
-    bool is_encoder_decoder;    // Para modelos encoder-decoder
-    std::string norm_type;      // "rms" o "layer"
+    std::string arch_name;      // Original architecture name
+    bool has_cls_token;         // For models with class token
+    bool is_causal;             // For causal attention
+    bool is_encoder_only;       // For encoder-only models
+    bool is_decoder_only;       // For decoder-only models
+    bool is_encoder_decoder;    // For encoder-decoder models
+    std::string norm_type;      // "rms" or "layer"
     std::string pos_encoding;   // "rope", "learned", etc.
-    bool uses_moe;              // Usa Mixture of Experts
-    bool uses_parallel_attn;    // Usa atención paralela
-    bool uses_swiglu;           // Usa SwiGLU
+    bool uses_moe;              // Uses Mixture of Experts
+    bool uses_parallel_attn;    // Uses parallel attention
+    bool uses_swiglu;           // Uses SwiGLU
 };
 
 enum llm_kv {

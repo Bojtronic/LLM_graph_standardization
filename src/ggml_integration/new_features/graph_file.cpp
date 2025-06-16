@@ -55,12 +55,12 @@ bool write_graph_data(const std::string &filename, const GraphData &graph_data)
         return false;
     }
 
-    // 1. Cabecera de identificación y versión
+    // 1. Identification and version header
     const std::string magic = "GRAPH";
     out.write(magic.c_str(), magic.size());
     out.put('\n');
 
-    // 2. Encabezado
+    // 2. Header
     out.write(reinterpret_cast<const char *>(&graph_data.header), sizeof(GGUFHeader));
     out.put('\n');
 
@@ -69,22 +69,22 @@ bool write_graph_data(const std::string &filename, const GraphData &graph_data)
     out.write(metadata_marker.c_str(), metadata_marker.size());
     out.put('\n');
 
-    // 3. Metadatos
+    // 3. Metadata
     uint32_t metadata_count = graph_data.metadata.size();
     out.write(reinterpret_cast<const char *>(&metadata_count), sizeof(uint32_t));
     out.put('\n');
 
     for (const auto &md : graph_data.metadata)
     {
-        // Clave
+        // Key
         out << md.key;
         out.put('\n');
 
-        // Tipo
+        // Type
         out.write(reinterpret_cast<const char *>(&md.type), sizeof(enum gguf_type));
         out.put('\n');
 
-        // Valor según tipo
+        // Value according to type
         switch (md.type)
         {
         case GGUF_TYPE_UINT8:
@@ -168,7 +168,7 @@ bool write_graph_data(const std::string &filename, const GraphData &graph_data)
         out.put('\n');
     }
 
-    // 4. Tensores
+    // 4. Tensors
     const std::string tensors_marker = "---TENSORS---";
     out.write(tensors_marker.c_str(), tensors_marker.size());
     out.put('\n');
@@ -179,11 +179,11 @@ bool write_graph_data(const std::string &filename, const GraphData &graph_data)
 
     for (const auto &tensor : graph_data.tensors)
     {
-        // Delimitador de inicio
+        // Start delimiter
         out << "---BEGIN_TENSOR---";
         out.put('\n');
 
-        // 1. Información básica
+        // Tensor info
         out << "NAME: " << tensor.name;
         out.put('\n');
         out << "ORIGINAL_TYPE(STORED_AS_F32): " << tensor.type; // Conservamos el tipo original (puede ser cuantizado)
@@ -201,11 +201,11 @@ bool write_graph_data(const std::string &filename, const GraphData &graph_data)
         out << "OP:" << tensor.op;
         out.put('\n');
 
-        // 2. Datos del tensor (siempre float, aunque el tipo indique cuantización)
+        // Tensor data (always float, even if the type indicates quantization)
         out << "DATA_START:";
         out.put('\n');
 
-        // Acceso directo a los datos float con verificación
+        // Direct access to float data with verification
         try
         {
             const auto &float_data = std::get<std::vector<float>>(tensor.data);
@@ -221,7 +221,7 @@ bool write_graph_data(const std::string &filename, const GraphData &graph_data)
         out << "DATA_END";
         out.put('\n');
 
-        // Delimitador final
+        // End delimiter
         out << "---END_TENSOR---";
         out.put('\n');
     }
@@ -254,7 +254,7 @@ GGUFMetadata read_metadata(const std::string &filename, const std::string &key)
         return GGUFMetadata();
     }
 
-    // 2. Read GGUF header
+    // 2. Read header
     GGUFHeader header;
     in.read(reinterpret_cast<char *>(&header), sizeof(GGUFHeader));
 
@@ -499,7 +499,7 @@ GGUFTensor read_tensor(const std::string &filename, const std::string &name)
         return GGUFTensor();
     }
 
-    // 1. Verify magic string
+    // Verify magic string
     char magic[6];
     in.read(magic, 6);
     if (std::string(magic, 5) != "GRAPH" || magic[5] != '\n')
@@ -525,19 +525,19 @@ GGUFTensor read_tensor(const std::string &filename, const std::string &name)
     uint32_t tensors_count;
     in.read(reinterpret_cast<char *>(&tensors_count), sizeof(uint32_t));
 
-    // Verificar que la lectura fue exitosa
+    // Verify that the reading was successful
     if (!in)
     {
-        std::cerr << "Error al leer el número de tensores\n";
+        std::cerr << "Error reading the number of tensors\n";
         return GGUFTensor();
     }
 
-    // Descartar el '\n' que sigue (si existe)
+    // Discard the following '\n' (if any)
     if (in.peek() == '\n')
         in.ignore(1);
 
 
-    // 5. Search for the tensor
+    // Search for the tensor
     for (uint32_t i = 0; i < tensors_count; ++i)
     {
         GGUFTensor tensor;
@@ -562,7 +562,7 @@ GGUFTensor read_tensor(const std::string &filename, const std::string &name)
                 tensor.name = line.substr(6);
             }
             else if (line.find("ORIGINAL_TYPE: ") == 0)
-            { // Modificado para coincidir con tu formato
+            { // Modified to match format ///////////////////////////////////////////
                 tensor.type = static_cast<enum ggml_type>(std::stoi(line.substr(15)));
             }
             else if (line.find("DATA_SIZE: ") == 0)
@@ -615,12 +615,34 @@ GGUFTensor read_tensor(const std::string &filename, const std::string &name)
 
 
 
-// Helper function to read array data
+/**
+ * @brief Reads an array of binary data from an input stream
+ * 
+ * This helper function efficiently reads binary data of a specified type
+ * from an input file stream into a std::vector. It handles proper type
+ * conversion and memory management.
+ * 
+ * @tparam T The data type to read (must be a POD/trivially-copyable type)
+ * @param in Input file stream (must be open and in good state)
+ * @param size Number of elements to read
+ * @return std::vector<T> containing the read data
+ * 
+ * @note The function will read exactly size*sizeof(T) bytes from the stream
+ * @warning No bounds checking is performed - ensure stream has sufficient data
+ * @warning The stream must be in binary mode for correct operation
+ */
 template <typename T>
 std::vector<T> read_array(std::ifstream &in, size_t size)
 {
+    // Create output vector with requested size (initializes memory)
     std::vector<T> data(size);
+    
+    // Directly read binary data into vector's underlying storage
+    // - Uses reinterpret_cast for type-safe pointer conversion
+    // - Reads exactly size*sizeof(T) bytes from current stream position
     in.read(reinterpret_cast<char *>(data.data()), size * sizeof(T));
+    
+    // Return vector by move semantics (efficient transfer)
     return data;
 }
 

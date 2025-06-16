@@ -15,10 +15,18 @@
 #include "gguf.h"
 #include "quantization_management.h"
 
-// Función para inferir la operación basada en el nombre del tensor
+/**
+ * @brief Infers the operation type based on tensor name patterns
+ * 
+ * This function analyzes the tensor name to determine the most likely GGML operation
+ * it represents (matrix multiplication, normalization, etc.) based on naming patterns.
+ * 
+ * @param tensor_name The name of the tensor to analyze
+ * @return enum ggml_op The inferred GGML operation type
+ */
 enum ggml_op infer_operation(const std::string &tensor_name)
 {
-    // Patrones para atención
+    // Patterns for attention
     if (tensor_name.find("attn_q.") != std::string::npos ||
         tensor_name.find("q_proj.") != std::string::npos ||
         tensor_name.find("attn_k.") != std::string::npos ||
@@ -31,7 +39,7 @@ enum ggml_op infer_operation(const std::string &tensor_name)
         return GGML_OP_MUL_MAT;
     }
 
-    // Patrones para feed-forward
+    // Patterns for feed-forward
     if (tensor_name.find("ffn_up.") != std::string::npos ||
         tensor_name.find("ffn_down.") != std::string::npos ||
         tensor_name.find("ffn_gate.") != std::string::npos ||
@@ -41,7 +49,7 @@ enum ggml_op infer_operation(const std::string &tensor_name)
         return GGML_OP_MUL_MAT;
     }
 
-    // Patrones para embeddings
+    // Patterns for embeddings
     if (tensor_name.find("token_embd.") != std::string::npos ||
         tensor_name.find("embed_tokens.") != std::string::npos ||
         tensor_name.find("position_embd.") != std::string::npos ||
@@ -50,7 +58,7 @@ enum ggml_op infer_operation(const std::string &tensor_name)
         return GGML_OP_MUL_MAT;
     }
 
-    // Patrones para normalización
+    // Patterns for normalization
     if (tensor_name.find("_norm.") != std::string::npos ||
         tensor_name.find("layer_norm.") != std::string::npos ||
         tensor_name.find("final_layer_norm.") != std::string::npos)
@@ -58,11 +66,20 @@ enum ggml_op infer_operation(const std::string &tensor_name)
         return GGML_OP_NORM;
     }
 
-    // Por defecto asumimos una operación de multiplicación de matrices
+    // Default to matrix multiplication operation
     return GGML_OP_MUL_MAT;
 }
 
-// Función para inferir tensores fuente
+/**
+ * @brief Infers source tensors for a given tensor based on naming patterns
+ * 
+ * This function determines which other tensors are likely inputs (sources) for
+ * the given tensor based on naming conventions and model architecture patterns.
+ * 
+ * @param tensor_name The name of the target tensor
+ * @param tensors List of all available tensors in the model
+ * @return std::vector<std::string> List of inferred source tensor names
+ */
 std::vector<std::string> infer_src_tensors(const std::string &tensor_name,
                                            const std::vector<GGUFTensor> &tensors)
 {
@@ -70,11 +87,11 @@ std::vector<std::string> infer_src_tensors(const std::string &tensor_name,
 
     try
     {
-        // Extraer prefijo de bloque (ej. "blk.0.", "model.decoder.layers.0.")
+        // Extract block prefix (e.g. "blk.0.", "model.decoder.layers.0.")
         size_t block_end = tensor_name.find_last_of('.');
         std::string block_prefix = (block_end != std::string::npos) ? tensor_name.substr(0, block_end + 1) : "";
 
-        // 1. Para tensores de atención Q/K/V
+        // 1. For Q/K/V attention tensors
         if (tensor_name.find("attn_q.") != std::string::npos ||
             tensor_name.find("q_proj.") != std::string::npos ||
             tensor_name.find("attn_k.") != std::string::npos ||
@@ -82,8 +99,7 @@ std::vector<std::string> infer_src_tensors(const std::string &tensor_name,
             tensor_name.find("attn_v.") != std::string::npos ||
             tensor_name.find("v_proj.") != std::string::npos)
         {
-
-            // Buscar tensor de normalización correspondiente
+            // Find corresponding normalization tensor
             std::string norm_name = block_prefix + "attn_norm";
             for (const auto &t : tensors)
             {
@@ -94,7 +110,7 @@ std::vector<std::string> infer_src_tensors(const std::string &tensor_name,
                 }
             }
         }
-        // 2. Para tensores de salida de atención
+        // 2. For attention output tensors
         else if (tensor_name.find("attn_output.") != std::string::npos ||
                  tensor_name.find("out_proj.") != std::string::npos)
         {
@@ -102,7 +118,7 @@ std::vector<std::string> infer_src_tensors(const std::string &tensor_name,
             src_tensors.push_back(block_prefix + "attn_k");
             src_tensors.push_back(block_prefix + "attn_v");
         }
-        // 3. Para tensores feed-forward
+        // 3. For feed-forward tensors
         else if (tensor_name.find("ffn_down.") != std::string::npos ||
                  tensor_name.find("fc2.") != std::string::npos)
         {
@@ -111,7 +127,7 @@ std::vector<std::string> infer_src_tensors(const std::string &tensor_name,
         else if (tensor_name.find("ffn_up.") != std::string::npos ||
                  tensor_name.find("fc1.") != std::string::npos)
         {
-            // Buscar tensor de normalización FFN
+            // Find FFN normalization tensor
             std::string norm_name = block_prefix + "ffn_norm";
             for (const auto &t : tensors)
             {
@@ -122,12 +138,12 @@ std::vector<std::string> infer_src_tensors(const std::string &tensor_name,
                 }
             }
         }
-        // 4. Para capas de normalización
+        // 4. For normalization layers
         else if (tensor_name.find("_norm.") != std::string::npos)
         {
             if (!block_prefix.empty())
             {
-                // Extraer número de bloque de forma segura
+                // Safely extract block number
                 auto extract_block_num = [](const std::string &s) -> int
                 {
                     try
@@ -156,7 +172,7 @@ std::vector<std::string> infer_src_tensors(const std::string &tensor_name,
                 int block_num = extract_block_num(block_prefix);
                 if (block_num > 0)
                 {
-                    // Construir nombre del bloque anterior
+                    // Build previous block name
                     size_t block_start = block_prefix.find_last_of('.', block_prefix.length() - 2);
                     if (block_start != std::string::npos)
                     {
@@ -170,24 +186,32 @@ std::vector<std::string> infer_src_tensors(const std::string &tensor_name,
     }
     catch (const std::exception &e)
     {
-        std::cerr << "Error procesando tensor '" << tensor_name << "': " << e.what() << std::endl;
+        std::cerr << "Error processing tensor '" << tensor_name << "': " << e.what() << std::endl;
     }
 
-    // Eliminar posibles duplicados
+    // Remove possible duplicates
     std::sort(src_tensors.begin(), src_tensors.end());
     src_tensors.erase(std::unique(src_tensors.begin(), src_tensors.end()), src_tensors.end());
 
     return src_tensors;
 }
 
-// Función para inferir el tensor destino
+/**
+ * @brief Infers the destination tensor name based on the given tensor name
+ * 
+ * This function determines the most likely destination tensor for a given source tensor
+ * by analyzing naming patterns and common transformer architecture conventions.
+ * 
+ * @param tensor_name The name of the source tensor to analyze
+ * @return std::string The inferred destination tensor name, or empty string if cannot be determined
+ */
 std::string infer_dst_tensor(const std::string &tensor_name)
 {
-    // Extraer el prefijo del bloque
+    // Extract the block prefix (e.g., "blk.3." or "layers.5.")
     size_t block_end = tensor_name.find_last_of('.');
     std::string block_prefix = (block_end != std::string::npos) ? tensor_name.substr(0, block_end + 1) : "";
 
-    // Para tensores de atención Q/K/V
+    // Handle attention query/key/value projection tensors
     if (tensor_name.find("attn_q.") != std::string::npos ||
         tensor_name.find("q_proj.") != std::string::npos ||
         tensor_name.find("attn_k.") != std::string::npos ||
@@ -195,44 +219,51 @@ std::string infer_dst_tensor(const std::string &tensor_name)
         tensor_name.find("attn_v.") != std::string::npos ||
         tensor_name.find("v_proj.") != std::string::npos)
     {
+        // These projections feed into the attention output
         return block_prefix + "attn_output";
     }
-    // Para tensores feed-forward up/down
+    // Handle feed-forward network up-projection or first fully-connected layer
     else if (tensor_name.find("ffn_up.") != std::string::npos ||
              tensor_name.find("fc1.") != std::string::npos)
     {
+        // Up projection feeds into down projection
         return block_prefix + "ffn_down";
     }
+    // Handle feed-forward network down-projection or second fully-connected layer
     else if (tensor_name.find("ffn_down.") != std::string::npos ||
              tensor_name.find("fc2.") != std::string::npos)
     {
+        // Down projection feeds into the final layer output
         return block_prefix + "layer_output";
     }
-    // Para tensores de normalización
+    // Handle normalization layers
     else if (tensor_name.find("_norm.") != std::string::npos)
     {
+        // Attention normalization feeds into query projection
         if (tensor_name.find("attn_norm.") != std::string::npos)
         {
             return block_prefix + "attn_q";
         }
+        // FFN normalization feeds into up projection
         else if (tensor_name.find("ffn_norm.") != std::string::npos)
         {
             return block_prefix + "ffn_up";
         }
+        // Other normalizations feed into layer output
         else
         {
             return block_prefix + "layer_output";
         }
     }
 
-    return ""; // No se pudo inferir
+    return ""; // Could not infer destination tensor
 }
 
 /**
- * @brief Parsea un contexto GGUF y almacena todos los datos en una estructura GraphData
- * @param ctx Contexto GGUF cargado
- * @param fname Nombre del archivo GGUF (para leer datos de tensores)
- * @return Estructura GraphData con todos los datos cargados
+ * @brief Parses a GGUF context and stores all data in a GraphData structure
+ * @param ctx Loaded GGUF context
+ * @param fname GGUF filename (for reading tensor data)
+ * @return GraphData structure with all loaded data
  */
 GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
 {
@@ -244,11 +275,11 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
         return graph_data;
     }
 
-    // Llenar el encabezado
+    // Fill in the header
     graph_data.header.n_tensors = gguf_get_n_tensors(ctx);
     graph_data.header.n_kv = gguf_get_n_kv(ctx);
 
-    // Llenar metadatos
+    // Fill in metadata
     for (int64_t i = 0; i < gguf_get_n_kv(ctx); ++i)
     {
         GGUFMetadata md;
@@ -332,9 +363,6 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
             case GGUF_TYPE_STRING:
 
             {
-                // Marcar que hay un array de strings no procesado
-                //md.array.data = std::vector<std::string>(); // Vacío
-
                 std::vector<std::string> strings;
                 strings.reserve(md.array.size);
                 for (size_t j = 0; j < md.array.size; ++j) {
@@ -359,7 +387,7 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
         graph_data.metadata.push_back(md);
     }
 
-    // Llenar información de tensores
+    // Fill in tensor information
     for (int64_t i = 0; i < gguf_get_n_tensors(ctx); ++i)
     //for (int64_t i = 0; i < 15; ++i)
     {
@@ -368,22 +396,22 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
         tensor.type = gguf_get_tensor_type(ctx, i);
         tensor.size = gguf_get_tensor_size(ctx, i);
 
-        // Obtener dimensiones
+        // Get dimensions
         const int32_t n_dims = gguf_get_tensor_n_dims(ctx, i);
         const int64_t *dims = gguf_get_tensor_dims(ctx, i);
         tensor.dims.assign(dims, dims + n_dims);
         tensor.n_dims = n_dims;
 
-        /////////////////////////////////////
+        ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-        // Leer datos del tensor
+        // Read data from the tensor
         std::ifstream file(fname, std::ios::binary);
         if (file)
         {
             size_t offset = gguf_get_tensor_offset(ctx, i);
             file.seekg(offset, std::ios::beg);
 
-            // Asignar el tipo de almacenamiento correcto
+            // Assign the correct storage type
             if (!ggml_is_quantized(tensor.type))
             {
                 switch (tensor.type)
@@ -434,23 +462,17 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
             }
             else
             {
-                // Para tipos cuantizados, usar vector<uint8_t>
-                //std::vector<uint8_t> quant_data(tensor.size);
-                //file.read(reinterpret_cast<char *>(quant_data.data()), tensor.size);
-                //tensor.data = quant_data;
-
-
-                // Determinar el tamaño del bloque según el tipo de cuantización
+                // Determine the block size according to the quantization type
                 size_t block_size = 0;
-                size_t values_per_block = 0;  // Valores desquantizados por bloque
+                size_t values_per_block = 0;  // Dequantized securities per block
                 switch (tensor.type) {
                     case GGML_TYPE_Q2_K:
                         block_size = sizeof(block_q2_k);
-                        values_per_block = 256;  // Cada bloque Q2_K contiene 256 valores
+                        values_per_block = 256;  // Each Q2_K block contains 256 values
                         break;
                     case GGML_TYPE_Q3_K:
                         block_size = sizeof(block_q3_k);
-                        values_per_block = 256;  // Cada bloque Q3_K contiene 256 valores
+                        values_per_block = 256;  // Each Q3_K block contains 256 values
                         break;
                     case GGML_TYPE_Q4_K:
                         block_size = sizeof(block_q4_k);
@@ -472,32 +494,32 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
                         throw std::runtime_error("Tipo de cuantización no soportado");
                 }
                  
-                // Calcular el número de bloques en el tensor
+                // Calculate the number of blocks in the tensor
                 size_t num_blocks = tensor.size / block_size;
                 std::vector<uint8_t> quant_data(tensor.size);
                 file.read(reinterpret_cast<char*>(quant_data.data()), tensor.size);
 
-                // Desquantizar a float
+                // Dequantize to float
                 std::vector<float> float_data;
-                float_data.resize(num_blocks * values_per_block);  // Total de valores desquantizados
+                float_data.resize(num_blocks * values_per_block);  // Total dequantized values
 
-                // Llamar a la función de desquantización correcta (solo cuantizacion QX_K)
+                // Call the correct dequantization function (QX_K quantization only)
                 dequantize_k_quant(tensor.type, quant_data.data(), float_data.data(), num_blocks * values_per_block);
 
-                // Almacenar los datos desquantizados en el tensor
+                // Store dequantized data in the tensor
                 tensor.data = float_data;
                             
             }
         }
 
 
-        ////////////////////////////////////
+        ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-        // Marcar que no cargamos los datos
+        // Check that we do not load the data (for testing)
         //tensor.data = std::vector<uint8_t>();
 
-        // Inferir operación y conexiones
+        // Infer operation and connections
         tensor.op = infer_operation(tensor.name);
         tensor.src_tensors = infer_src_tensors(tensor.name, graph_data.tensors);
         tensor.dst_tensor = infer_dst_tensor(tensor.name);
@@ -508,23 +530,32 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname)
     return graph_data;
 }
 
-
+/**
+ * @brief Generates a DOT graph representation of the GGUF model architecture
+ * 
+ * This function creates a Graphviz DOT format string that visualizes the tensor
+ * operations and their connections in the GGUF model. Each tensor is represented
+ * as a node with operation type and dimensions, and connections show data flow.
+ * 
+ * @param graph_data The GraphData structure containing tensor information
+ * @return std::string The DOT format graph as a string
+ */
 std::string generate_dot_graph(const GraphData &graph_data)
 {
     std::ostringstream dot;
 
-    // Encabezado del archivo DOT
+    // DOT file header
     dot << "digraph GGUF_Graph {\n";
     dot << "  rankdir=LR;\n";
     dot << "  node [shape=box, style=filled, fillcolor=\"#f0f0f0\", fontname=\"Helvetica\"];\n";
     dot << "  edge [fontname=\"Helvetica\", fontsize=10];\n\n";
 
-    // Agregar nodos (tensores)
+    // Add nodes (tensors)
     for (const auto &tensor : graph_data.tensors)
     {
         std::string node_name = tensor.name;
 
-        // Obtener nombre de la operación
+        // Get operation name
         std::string op_str;
         switch (tensor.op)
         {
@@ -542,7 +573,7 @@ std::string generate_dot_graph(const GraphData &graph_data)
             break;
         }
 
-        // Crear etiqueta con nombre, operación y dimensiones
+        // Create label with name, operation and dimensions
         std::string label = tensor.name + "\\n" +
                             "Op: " + op_str + "\\n" +
                             "Dims: [";
@@ -555,21 +586,21 @@ std::string generate_dot_graph(const GraphData &graph_data)
         }
         label += "]";
 
-        // Color diferente según el tipo de operación
+        // Different color based on operation type
         std::string color;
         switch (tensor.op)
         {
         case GGML_OP_MUL_MAT:
-            color = "#d4f1f9"; // Azul claro
+            color = "#d4f1f9"; // Light blue
             break;
         case GGML_OP_NORM:
-            color = "#d5e8d4"; // Verde claro
+            color = "#d5e8d4"; // Light green
             break;
         case GGML_OP_SOFT_MAX:
-            color = "#f8cecc"; // Rojo claro
+            color = "#f8cecc"; // Light red
             break;
         default:
-            color = "#f0f0f0"; // Gris claro
+            color = "#f0f0f0"; // Light gray
         }
 
         dot << "  \"" << node_name << "\" [label=\"" << label << "\", fillcolor=\"" << color << "\"];\n";
@@ -577,16 +608,16 @@ std::string generate_dot_graph(const GraphData &graph_data)
 
     dot << "\n";
 
-    // Agregar conexiones (aristas)
+    // Add connections (edges)
     for (const auto &tensor : graph_data.tensors)
     {
-        // Conexiones desde tensores fuente
+        // Connections from source tensors
         for (const auto &src : tensor.src_tensors)
         {
             dot << "  \"" << src << "\" -> \"" << tensor.name << "\";\n";
         }
 
-        // Conexión al tensor destino (si existe)
+        // Connection to destination tensor (if exists)
         if (!tensor.dst_tensor.empty())
         {
             dot << "  \"" << tensor.name << "\" -> \"" << tensor.dst_tensor << "\";\n";
@@ -599,17 +630,31 @@ std::string generate_dot_graph(const GraphData &graph_data)
 }
 
 
-// Función para guardar el gráfico DOT en un archivo
+/**
+ * @brief Saves the DOT graph representation to a file
+ * 
+ * This function generates a DOT format graph using the provided GraphData
+ * and saves it to the specified file. The graph visualizes the tensor
+ * operations and connections in the GGUF model.
+ * 
+ * @param graph_data The GraphData structure containing tensor information
+ * @param filename The path to the output file where the DOT graph will be saved
+ * @return true if the file was successfully saved, false otherwise
+ */
 bool save_dot_graph(const GraphData &graph_data, const std::string &filename)
 {
+    // Attempt to open the output file
     std::ofstream out_file(filename);
     if (!out_file.is_open())
     {
-        std::cerr << "Error al abrir el archivo: " << filename << std::endl;
+        std::cerr << "Error opening file: " << filename << std::endl;
         return false;
     }
 
+    // Generate the DOT graph content
     std::string dot_content = generate_dot_graph(graph_data);
+    
+    // Write the content to file
     out_file << dot_content;
     out_file.close();
 
@@ -617,9 +662,9 @@ bool save_dot_graph(const GraphData &graph_data, const std::string &filename)
 }
 
 /**
- * @brief Función principal para cargar un archivo GGUF y obtener la configuración
- * @param fname Nombre del archivo GGUF
- * @return true si la carga fue exitosa, false en caso contrario
+ * @brief Main function to load a GGUF file and retrieve its configuration
+ * @param fname Name of the GGUF file
+ * @return true if loading was successful, false otherwise
  */
 bool get_gguf_config(const char *fname)
 {

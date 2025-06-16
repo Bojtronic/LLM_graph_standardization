@@ -30,7 +30,7 @@ bool get_gguf_config(const char *fname);
  * @param metadata Model metadata
  * @return ModelConfig with detected architecture and features
  */
-ModelConfig detect_model_config(const std::vector<GGUFMetadata>& metadata);
+//ModelConfig detect_model_config(const std::vector<GGUFMetadata>& metadata);
 
 
 /**
