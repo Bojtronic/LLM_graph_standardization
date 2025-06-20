@@ -18,3 +18,8 @@ cmake --build build --config Release --target run_graph
 
 mv ~/test/Graph/models/archivo.ext ~/test/Graph/
 
+
+
+dot -Tpng sample_graph.dot -o sample_graph.png
+
+

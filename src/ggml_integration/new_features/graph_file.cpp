@@ -198,6 +198,7 @@ bool write_graph_data(const std::string &filename, const GraphData &graph_data)
             out << dim << " ";
         }
         out.put('\n');
+        
         out << "OP:" << tensor.op;
         out.put('\n');
 

@@ -9,44 +9,52 @@
 #include <ggml.h>
 #include "graph_data_structs.h"
 
-// Define block structures for each quantization type
+#define QK_K 256  // Super-block size
+#define K_SCALE_SIZE 12  // Scale size for some blocks
+
+typedef ggml_fp16_t ggml_half;
+
+// Basic quantized block structures
 typedef struct {
-    uint8_t qs[64];   // 2-bit quantized weights
-    uint8_t scales[8]; // 4-bit scales
-    ggml_fp16_t d;     // super-block scale
-    ggml_fp16_t dmin;  // super-block minimum
-} block_q2_k;
+    uint8_t scales[QK_K/16];  // 16 scales (4 bits each)
+    uint8_t qs[QK_K/4];       // 64 2-bit quantized values
+    ggml_fp16_t d;            // Super-block scale
+    ggml_fp16_t dmin;         // Super-block minimum
+} block_q2_K;
 
 typedef struct {
-    uint8_t qs[96];   // 3-bit quantized weights
-    uint8_t scales[12]; // 6-bit scales
-    ggml_fp16_t d;     // super-block scale
-} block_q3_k;
+    uint8_t hmask[QK_K/8];    // 32 high bits (1 bit each)
+    uint8_t qs[QK_K/4];       // 64 2-bit quantized values (low bits)
+    uint8_t scales[QK_K/16];  // 16 scales (6 bits each)
+    ggml_fp16_t d;            // Super-block scale
+} block_q3_K;
 
 typedef struct {
-    uint8_t qs[128];  // 4-bit quantized weights
-    uint8_t scales[12]; // 6-bit scales and mins
-    ggml_fp16_t d;     // super-block scale
-    ggml_fp16_t dmin;  // super-block minimum
-} block_q4_k;
+    uint8_t scales[K_SCALE_SIZE];  // Scales and minimums (6 bits)
+    uint8_t qs[QK_K/2];            // 128 4-bit quantized values
+    ggml_fp16_t d;                 // Super-block scale
+    ggml_fp16_t dmin;              // Super-block minimum
+} block_q4_K;
 
 typedef struct {
-    uint8_t qs[160];  // 5-bit quantized weights
-    uint8_t scales[12]; // 6-bit scales and mins
-    ggml_fp16_t d;     // super-block scale
-    ggml_fp16_t dmin;  // super-block minimum
-} block_q5_k;
+    uint8_t scales[K_SCALE_SIZE];  // Scales and minimums (6 bits)
+    uint8_t qh[QK_K/8];            // 32 high bits (1 bit each)
+    uint8_t qs[QK_K/2];            // 128 4-bit quantized values (low bits)
+    ggml_fp16_t d;                 // Super-block scale
+    ggml_fp16_t dmin;              // Super-block minimum
+} block_q5_K;
 
 typedef struct {
-    uint8_t qs[192];  // 6-bit quantized weights
-    uint8_t scales[16]; // 8-bit scales
-    ggml_fp16_t d;     // super-block scale
-} block_q6_k;
+    uint8_t ql[QK_K/2];       // 128 4-bit quantized values (low bits)
+    uint8_t qh[QK_K/4];       // 64 2-bit quantized values (high bits)
+    int8_t scales[QK_K/16];   // 16 scales (8 bits)
+    ggml_fp16_t d;            // Super-block scale
+} block_q6_K;
 
 typedef struct {
-    uint8_t qs[256];  // 8-bit quantized weights
-    ggml_fp16_t d;     // super-block scale
-} block_q8_k;
+    int8_t qs[QK_K];          // 256 8-bit quantized values
+    ggml_fp16_t d;            // Super-block scale
+} block_q8_K;
 
 // Function declarations
 size_t get_k_quant_super_block_size(ggml_type type);

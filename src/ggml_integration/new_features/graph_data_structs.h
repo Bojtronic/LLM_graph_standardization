@@ -79,7 +79,8 @@ struct GGUFTensor {
     int32_t n_dims;             // Number of tensor dimensions
     std::vector<int64_t> dims;  // Tensor dimensions
 
-    enum ggml_op op;            // Operation that produces this tensor
+    enum ggml_op op;            // Tensor operation if applicable
+    ggml_unary_op unary_op;     // Unary operation if applicable
     std::vector<std::string> src_tensors; ///< Names of input tensors
     std::string dst_tensor;     // Name of destination tensor that will use this result
 
