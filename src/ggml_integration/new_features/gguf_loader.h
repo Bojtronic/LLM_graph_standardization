@@ -16,7 +16,8 @@
  * @param fname GGUF filename (for reading tensor data)
  * @return GraphData structure with all loaded data
  */
-GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname);
+//GraphData gguf_graph_data(const struct gguf_context *ctx, const char *fname);
+GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf, const char *file_graph);
 
 /**
  * @brief Main function to load a GGUF file and get its configuration

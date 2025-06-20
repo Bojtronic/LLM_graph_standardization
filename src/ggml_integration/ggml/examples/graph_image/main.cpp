@@ -7,6 +7,8 @@
 #include <variant>
 #include "gguf.h"
 #include "ggml.h"
+#include <set>
+#include <algorithm>
 
 
 /**
@@ -179,73 +181,135 @@ static std::vector<T> read_array_data(const gguf_context *ctx, int64_t i, size_t
 std::string generate_computational_graph(const GraphData& graph) {
     std::string dot_output;
     
-    // Inicio del gráfico DOT
+    // Configuración inicial del gráfico DOT
     dot_output = "digraph ComputationalGraph {\n";
-    dot_output += "    rankdir=LR;\n";
-    dot_output += "    node [shape=box, style=filled, fillcolor=\"#E6E6FA\"];\n";
+    dot_output += "    rankdir=LR;\n";  // Flujo izquierda a derecha
+    dot_output += "    node [fontname=\"Helvetica\", fontsize=10];\n";
     dot_output += "    edge [arrowsize=0.8];\n\n";
     
-    std::map<std::string, bool> processed_nodes;
+    // Estilos para diferentes tipos de nodos
+    dot_output += "    // Estilos predefinidos\n";
+    dot_output += "    input_node [shape=box, style=filled, fillcolor=\"#98FB98\", label=\"Input Tensor\"];\n";
+    dot_output += "    output_node [shape=box, style=filled, fillcolor=\"#FFA07A\", label=\"Output Tensor\"];\n";
+    dot_output += "    tensor_node [shape=record, style=filled, fillcolor=\"#E6E6FA\", margin=\"0.2\"];\n\n";
     
+    // Función para generar la etiqueta completa del tensor
     auto get_tensor_label = [](const GGUFTensor& tensor) {
-        std::string label = tensor.name + "\\n";
+        std::string label = "{ " + tensor.name + " | ";
         
-        if (tensor.n_dims == 1) {
-            label += "[" + std::to_string(tensor.dims[0]) + "]";
-        } else if (tensor.n_dims == 2) {
-            label += "[" + std::to_string(tensor.dims[0]) + "x" + 
-                     std::to_string(tensor.dims[1]) + "]";
+        // Dimensiones
+        label += "Dims: ";
+        if (tensor.n_dims == 0) {
+            label += "scalar";
+        } else {
+            for (size_t i = 0; i < tensor.dims.size(); ++i) {
+                if (i > 0) label += "×";
+                label += std::to_string(tensor.dims[i]);
+            }
         }
         
-        label += "\\nType: ";
+        // Tipo de datos
+        label += " | Type: ";
         switch(tensor.type) {
             case GGML_TYPE_F32: label += "f32"; break;
             case GGML_TYPE_F16: label += "f16"; break;
             case GGML_TYPE_I32: label += "i32"; break;
+            case GGML_TYPE_I16: label += "i16"; break;
+            case GGML_TYPE_I8:  label += "i8";  break;
             default: label += "unknown"; break;
         }
         
+        // Operación (si aplica)
+        if (!tensor.src_tensors.empty()) {
+            label += " | Op: ";
+            switch(tensor.op) {
+                case GGML_OP_ADD:      label += "ADD"; break;
+                case GGML_OP_MUL:      label += "MUL"; break;
+                case GGML_OP_MUL_MAT:  label += "MATMUL"; break;
+                case GGML_OP_UNARY:    
+                    label += (tensor.unary_op == GGML_UNARY_OP_RELU) ? "RELU" : "UNARY";
+                    break;
+                default: label += "OP"; break;
+            }
+        }
+        
+        label += " }";
         return label;
     };
     
+    // Identificar tensores de entrada y salida
+    std::set<std::string> input_tensors;
+    std::set<std::string> output_tensors;
+    
     for (const auto& tensor : graph.tensors) {
-        if (processed_nodes.find(tensor.name) == processed_nodes.end()) {
-            dot_output += "    \"" + tensor.name + "\" [label=\"" + 
-                          get_tensor_label(tensor) + "\"";
-            
-            if (tensor.src_tensors.empty()) {
-                dot_output += ", fillcolor=\"#98FB98\"";
-            }
-            
-            dot_output += "];\n";
-            processed_nodes[tensor.name] = true;
+        if (tensor.src_tensors.empty()) {
+            input_tensors.insert(tensor.name);
         }
         
-        if (!tensor.src_tensors.empty()) {
-            std::string op_node_name = "op_" + tensor.name;
-            std::string op_label;
-            
-            switch(tensor.op) {
-                case GGML_OP_ADD: op_label = "ADD"; break;
-                case GGML_OP_MUL: op_label = "MUL"; break;
-                case GGML_OP_MUL_MAT: op_label = "MATMUL"; break;
-                case GGML_OP_UNARY: 
-                    op_label = (tensor.unary_op == GGML_UNARY_OP_RELU) ? "RELU" : "UNARY";
-                    break;
-                case GGML_OP_SOFT_MAX: op_label = "SOFTMAX"; break;
-                default: op_label = "OP"; break;
+        bool is_output = true;
+        for (const auto& other : graph.tensors) {
+            if (std::find(other.src_tensors.begin(), other.src_tensors.end(), tensor.name) != other.src_tensors.end()) {
+                is_output = false;
+                break;
             }
-            
-            dot_output += "    \"" + op_node_name + "\" [shape=ellipse, label=\"" + 
-                         op_label + "\", fillcolor=\"#FFD700\"];\n";
-            
-            for (const auto& src : tensor.src_tensors) {
-                dot_output += "    \"" + src + "\" -> \"" + op_node_name + "\";\n";
-            }
-            
-            dot_output += "    \"" + op_node_name + "\" -> \"" + tensor.name + "\";\n";
+        }
+        if (is_output && !tensor.src_tensors.empty()) {
+            output_tensors.insert(tensor.name);
         }
     }
+    
+    // Generar nodos de tensores
+    for (const auto& tensor : graph.tensors) {
+        if (input_tensors.count(tensor.name)) {
+            // Tensor de entrada
+            dot_output += "    \"" + tensor.name + "\" [label=\"" + tensor.name + 
+                         "\\n(Input)\", shape=box, style=filled, fillcolor=\"#98FB98\"];\n";
+        } else if (output_tensors.count(tensor.name)) {
+            // Tensor de salida
+            dot_output += "    \"" + tensor.name + "\" [label=\"" + get_tensor_label(tensor) + 
+                         "\", shape=box, style=filled, fillcolor=\"#FFA07A\"];\n";
+        } else {
+            // Tensor normal
+            dot_output += "    \"" + tensor.name + "\" [label=\"" + get_tensor_label(tensor) + 
+                         "\", shape=record, style=filled, fillcolor=\"#E6E6FA\"];\n";
+        }
+    }
+    
+    // Generar conexiones (operaciones)
+    for (const auto& tensor : graph.tensors) {
+        if (!tensor.src_tensors.empty()) {
+            // Para operaciones paralelas, agrupar los nodos fuente verticalmente
+            if (tensor.src_tensors.size() > 1) {
+                dot_output += "    subgraph cluster_" + tensor.name + " {\n";
+                dot_output += "        rank=same;  // Alinear verticalmente\n";
+                dot_output += "        style=invis;  // Sin bordes visibles\n";
+                
+                // Conectar todos los nodos fuente al destino
+                for (const auto& src : tensor.src_tensors) {
+                    dot_output += "        \"" + src + "\" -> \"" + tensor.name + "\";\n";
+                }
+                
+                dot_output += "    }\n";
+            } else {
+                // Conexión simple para operaciones no paralelas
+                dot_output += "    \"" + tensor.src_tensors[0] + "\" -> \"" + tensor.name + "\";\n";
+            }
+        }
+    }
+    
+    // Forzar orden horizontal por niveles de procesamiento
+    dot_output += "\n    // Ordenamiento horizontal por niveles\n";
+    dot_output += "    { rank=same; ";
+    for (const auto& tensor : input_tensors) {
+        dot_output += "\"" + tensor + "\" ";
+    }
+    dot_output += "}\n";
+    
+    dot_output += "    { rank=same; ";
+    for (const auto& tensor : output_tensors) {
+        dot_output += "\"" + tensor + "\" ";
+    }
+    dot_output += "}\n";
     
     dot_output += "}\n";
     return dot_output;
@@ -254,13 +318,13 @@ std::string generate_computational_graph(const GraphData& graph) {
 bool save_dot_to_file(const std::string& dot_content, const std::string& filename) {
     std::ofstream out_file(filename);
     if (!out_file.is_open()) {
+        std::cerr << "Error: Could not open file " << filename << " for writing.\n";
         return false;
     }
     out_file << dot_content;
     out_file.close();
     return true;
 }
-
 
 
 
@@ -280,39 +344,90 @@ GGUFTensor create_tensor(const std::string& name, ggml_type type,
 
 GraphData create_sample_graph() {
     GraphData graph;
-    graph.header.n_tensors = 10;
+    
+    // ========== Input Tensors ==========
+    // Input tensor (1D) - no weights or operation
+    // 64 tokens, each is an integer index
+    graph.tensors.push_back(create_tensor("tokens", GGML_TYPE_I32, {64}, GGML_OP_NONE));
+    
+    // ========== Embedding Layer ==========
+    // Embedding tensor (contains weights internally)
+    // Input: tokens (64,) → Output: (64, 512)
+    GGUFTensor embeddings = create_tensor("embeddings", GGML_TYPE_F32, {64, 512}, GGML_OP_MUL_MAT, {"tokens"});
+    // Embedding weights: vocab_size=32000, embedding_dim=512 → 32000*512 elements
+    embeddings.data = std::vector<float>(32000 * 512, 0.0f);
+    graph.tensors.push_back(embeddings);
+
+    // ========== Positional Encoding ==========
+    // Positional encoding tensor (contains weights internally)
+    // Input: embeddings (64,512) → Output: (64,512)
+    GGUFTensor pos_emb = create_tensor("pos_embeddings", GGML_TYPE_F32, {64, 512}, GGML_OP_ADD_REL_POS, {"embeddings"});
+    // Positional encoding weights: max_seq_len=1024, embedding_dim=512 → 1024*512 elements
+    pos_emb.data = std::vector<float>(1024 * 512, 0.0f);
+    graph.tensors.push_back(pos_emb);
+
+    // ========== Multi-Head Attention ==========
+    // Q, K, V projections (parallel ops, each with internal weights)
+    
+    // Query projection
+    // Input: pos_embeddings (64,512) → Output: (64,512)
+    GGUFTensor q_proj = create_tensor("q_proj", GGML_TYPE_F32, {64, 512}, GGML_OP_MUL_MAT, {"pos_embeddings"});
+    // Weights: embedding_dim=512 → 512*512 elements
+    q_proj.data = std::vector<float>(512 * 512, 0.0f);
+    graph.tensors.push_back(q_proj);
+    
+    // Key projection
+    GGUFTensor k_proj = create_tensor("k_proj", GGML_TYPE_F32, {64, 512}, GGML_OP_MUL_MAT, {"pos_embeddings"});
+    k_proj.data = std::vector<float>(512 * 512, 0.0f);
+    graph.tensors.push_back(k_proj);
+    
+    // Value projection
+    GGUFTensor v_proj = create_tensor("v_proj", GGML_TYPE_F32, {64, 512}, GGML_OP_MUL_MAT, {"pos_embeddings"});
+    v_proj.data = std::vector<float>(512 * 512, 0.0f);
+    graph.tensors.push_back(v_proj);
+    
+    // Attention scores: Q*K^T
+    // Input: q_proj (64,512), k_proj (64,512) → Output: (64,64)
+    graph.tensors.push_back(create_tensor("scores", GGML_TYPE_F32, {64, 64}, GGML_OP_MUL_MAT, {"q_proj", "k_proj"}));
+    
+    // Softmax normalization
+    // Input: scores (64,64) → Output: (64,64)
+    graph.tensors.push_back(create_tensor("attn_weights", GGML_TYPE_F32, {64, 64}, GGML_OP_SOFT_MAX, {"scores"}));
+    
+    // Weighted sum: attention * V
+    // Input: attn_weights (64,64), v_proj (64,512) → Output: (64,512)
+    graph.tensors.push_back(create_tensor("attn_output", GGML_TYPE_F32, {64, 512}, GGML_OP_MUL_MAT, {"attn_weights", "v_proj"}));
+
+    // ========== Feed-Forward Network ==========
+    // First linear transformation
+    // Input: attn_output (64,512) → Output: (64,2048)
+    GGUFTensor ffn1 = create_tensor("ffn1", GGML_TYPE_F32, {64, 2048}, GGML_OP_MUL_MAT, {"attn_output"});
+    // Weights: input_dim=512, hidden_dim=2048 → 512*2048 elements
+    ffn1.data = std::vector<float>(512 * 2048, 0.0f);
+    graph.tensors.push_back(ffn1);
+    
+    // Bias add + ReLU activation
+    // Input: ffn1 (64,2048) → Output: (64,2048)
+    GGUFTensor ffn_relu = create_tensor("ffn_relu", GGML_TYPE_F32, {64, 2048}, GGML_OP_NORM, {"ffn1"});
+    // Bias: hidden_dim=2048 → 2048 elements
+    ffn_relu.data = std::vector<float>(2048, 0.0f);
+    graph.tensors.push_back(ffn_relu);
+    
+    // Second linear transformation
+    // Input: ffn_relu (64,2048) → Output: (64,512)
+    GGUFTensor ffn2 = create_tensor("ffn2", GGML_TYPE_F32, {64, 512}, GGML_OP_MUL_MAT, {"ffn_relu"});
+    // Weights: hidden_dim=2048, output_dim=512 → 2048*512 elements
+    ffn2.data = std::vector<float>(2048 * 512, 0.0f);
+    graph.tensors.push_back(ffn2);
+
+    // ========== Output Layer ==========
+    // Final projection to vocabulary size
+    // Input: ffn2 (64,512) → Output: (64,32000)
+    graph.tensors.push_back(create_tensor("logits", GGML_TYPE_F32, {64, 32000}, GGML_OP_MUL_MAT, {"ffn2"}));
+    
+    // Update header counts
+    graph.header.n_tensors = graph.tensors.size();
     graph.header.n_kv = 0;
-    
-    // Tensores de entrada
-    graph.tensors.push_back(create_tensor("input1", GGML_TYPE_F32, {1024}, GGML_OP_NONE));
-    graph.tensors.push_back(create_tensor("input2", GGML_TYPE_F32, {1024}, GGML_OP_NONE));
-    graph.tensors.push_back(create_tensor("weight1", GGML_TYPE_F32, {4096, 1024}, GGML_OP_NONE));
-    graph.tensors.push_back(create_tensor("weight2", GGML_TYPE_F32, {1024, 4096}, GGML_OP_NONE)); // Cambiado a [1024, 4096]
-    graph.tensors.push_back(create_tensor("bias1", GGML_TYPE_F32, {4096}, GGML_OP_NONE));
-    
-    // Primera capa: input1 * weight1 + bias1
-    graph.tensors.push_back(create_tensor("matmul_out", GGML_TYPE_F32, {4096}, GGML_OP_MUL_MAT, 
-                                    {"input1", "weight1"}));
-    
-    graph.tensors.push_back(create_tensor("add_out", GGML_TYPE_F32, {4096}, GGML_OP_ADD, 
-                                    {"matmul_out", "bias1"}));
-    
-    // ReLU
-    GGUFTensor relu_tensor = create_tensor("relu_out", GGML_TYPE_F32, {4096}, GGML_OP_UNARY, {"add_out"});
-    relu_tensor.unary_op = GGML_UNARY_OP_RELU;
-    graph.tensors.push_back(relu_tensor);
-    
-    // Segunda capa: relu_out * weight2 (ahora weight2 tiene dimensiones [1024, 4096])
-    graph.tensors.push_back(create_tensor("matmul2_out", GGML_TYPE_F32, {1024}, GGML_OP_MUL_MAT,
-                                    {"relu_out", "weight2"}));
-    
-    // Multiplicación por input2 (element-wise)
-    graph.tensors.push_back(create_tensor("mul_out", GGML_TYPE_F32, {1024}, GGML_OP_MUL, 
-                                    {"matmul2_out", "input2"}));
-    
-    // Softmax final
-    graph.tensors.push_back(create_tensor("output", GGML_TYPE_F32, {1024}, GGML_OP_SOFT_MAX, 
-                                    {"mul_out"}));
     
     return graph;
 }

@@ -867,7 +867,7 @@ bool get_gguf_config(const char *fname)
         return false;
     }
 
-    GraphData graph_data = gguf_graph_data(ctx_gguf, fname);
+    GraphData graph_data = gguf_graph_data(ctx_gguf, fname, "graph.graph");
     save_dot_graph(graph_data, "graph.dot");
 
     gguf_free(ctx_gguf);
