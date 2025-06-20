@@ -13,11 +13,21 @@
 #include <utility>
 #include "arch_info.h"
 #include "gguf.h"
+#include "arch_info.h"
 #include "quantization_management.h"
+#include <regex>
 //#include "ggml-common.h"
 //#include "ggml.h"
 //#include "ggml-impl.h"
 //#include "ggml-quant.h"
+
+enum ggml_op infer_operation(const std::string &tensor_name, llm_arch arch) {
+    llm_tensor tensor;
+    if (get_tensor_by_name(tensor_name, arch, tensor)) {
+        return get_tensor_operation(tensor);
+    }
+    return infer_operation_fallback(tensor_name);
+}
 
 /**
  * @brief Infers the operation type based on tensor name patterns
@@ -28,7 +38,7 @@
  * @param tensor_name The name of the tensor to analyze
  * @return enum ggml_op The inferred GGML operation type
  */
-enum ggml_op infer_operation(const std::string &tensor_name)
+enum ggml_op infer_operation_fallback(const std::string &tensor_name)
 {
     // Patterns for attention
     if (tensor_name.find("attn_q.") != std::string::npos ||
@@ -276,6 +286,7 @@ std::string infer_dst_tensor(const std::string &tensor_name)
 GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf, const char *file_graph)
 {
     GraphData graph_data;
+    std::string architecture = "";
 
     if (!ctx)
     {
@@ -488,7 +499,10 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
         default:
             break;
         }
-
+        
+        if(md.key == "general.architecture"){
+            architecture = md.str;
+        }
         graph_data.metadata.push_back(md);
 
         const std::string item_end_marker = "---END_ITEM---";
@@ -685,7 +699,8 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
         // tensor.data = std::vector<uint8_t>();
 
         // Infer operation and connections
-        tensor.op = infer_operation(tensor.name);
+        llm_arch arch = llm_arch_from_string(architecture);
+        tensor.op = infer_operation(tensor.name, arch);
         tensor.src_tensors = infer_src_tensors(tensor.name, graph_data.tensors);
         tensor.dst_tensor = infer_dst_tensor(tensor.name);
 

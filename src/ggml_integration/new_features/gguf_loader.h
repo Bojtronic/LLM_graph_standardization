@@ -33,12 +33,14 @@ bool get_gguf_config(const char *fname);
 //ModelConfig detect_model_config(const std::vector<GGUFMetadata>& metadata);
 
 
+enum ggml_op infer_operation(const std::string &tensor_name, llm_arch arch);
+
 /**
  * @brief Infers the operation based on the tensor name
  * @param name tensor name
  * @return Inferred operation
  */
-ggml_op infer_operation(const std::string& name);
+ggml_op infer_operation_fallback(const std::string& name);
 
 /**
  * @brief Infers the source tensors based on the actual tensor name

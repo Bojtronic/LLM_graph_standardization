@@ -1,6 +1,6 @@
+#include <ggml.h>
 #ifndef ARCH_INFO_H
 #define ARCH_INFO_H
-
 
 
 enum llm_arch {
@@ -19,6 +19,7 @@ enum llm_arch {
     LLM_ARCH_BERT,
     LLM_ARCH_NOMIC_BERT,
     LLM_ARCH_NOMIC_BERT_MOE,
+    LLM_ARCH_NEO_BERT,
     LLM_ARCH_JINA_BERT_V2,
     LLM_ARCH_BLOOM,
     LLM_ARCH_STABLELM,
@@ -71,25 +72,9 @@ enum llm_arch {
     LLM_ARCH_WAVTOKENIZER_DEC,
     LLM_ARCH_PLM,
     LLM_ARCH_BAILINGMOE,
+    LLM_ARCH_DOTS1,
+    LLM_ARCH_ARCEE,
     LLM_ARCH_UNKNOWN,
-};
-
-/**
- * @brief Structure for model configuration
- */
-struct ModelConfig {
-    enum llm_arch arch;
-    std::string arch_name;      // Original architecture name
-    bool has_cls_token;         // For models with class token
-    bool is_causal;             // For causal attention
-    bool is_encoder_only;       // For encoder-only models
-    bool is_decoder_only;       // For decoder-only models
-    bool is_encoder_decoder;    // For encoder-decoder models
-    std::string norm_type;      // "rms" or "layer"
-    std::string pos_encoding;   // "rope", "learned", etc.
-    bool uses_moe;              // Uses Mixture of Experts
-    bool uses_parallel_attn;    // Uses parallel attention
-    bool uses_swiglu;           // Uses SwiGLU
 };
 
 enum llm_kv {
@@ -209,7 +194,6 @@ enum llm_kv {
     LLM_KV_TOKENIZER_HF_JSON,
     LLM_KV_TOKENIZER_RWKV,
     LLM_KV_TOKENIZER_CHAT_TEMPLATE,
-    LLM_KV_TOKENIZER_CHAT_TEMPLATE_N,
     LLM_KV_TOKENIZER_FIM_PRE_ID,
     LLM_KV_TOKENIZER_FIM_SUF_ID,
     LLM_KV_TOKENIZER_FIM_MID_ID,
@@ -225,6 +209,8 @@ enum llm_kv {
 
     LLM_KV_CONVNEXT_EMBEDDING_LENGTH,
     LLM_KV_CONVNEXT_BLOCK_COUNT,
+
+    LLM_KV_CLASSIFIER_OUTPUT_LABELS,
 
     // deprecated:
     LLM_KV_TOKENIZER_PREFIX_ID,
@@ -382,6 +368,16 @@ enum llm_tensor_layer {
     LLM_TENSOR_LAYER_REPEATING,
     LLM_TENSOR_LAYER_OUTPUT,
 };
+
+
+struct llm_tensor_info {
+    llm_tensor_layer layer;
+    ggml_op op;
+};
+
+llm_arch llm_arch_from_string(const std::string & name);
+ggml_op get_tensor_operation(llm_tensor tensor);
+bool get_tensor_by_name(const std::string &name, llm_arch arch, llm_tensor& out_tensor);
 
 #endif // ARCH_INFO_H
 
