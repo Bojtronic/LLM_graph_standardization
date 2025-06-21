@@ -46,24 +46,26 @@ int main(int argc, char** argv) {
 
         std::cout << "The GGUF context of the file was created " << std::endl; 
 
-        // Procesar datos del grafo
-        GraphData graph_data = gguf_graph_data(ctx_gguf, params.model_path.c_str());
-
-        std::cout << "The GraphData structure was created from the GGUF context " << std::endl;
-
         // Generar nombre del archivo .graph
         fs::path graph_path = fs::path(params.model_path).replace_extension(".graph");
-        
-        // Escribir datos del grafo
-        if (!write_graph_data(graph_path.string(), graph_data)) {
-            throw std::runtime_error("Failed to write graph data to: " + graph_path.string());
-        }
 
-        std::cout << "GraphData file (.graph) successfully written to: " << graph_path << std::endl;
+        // Procesar datos del grafo
+        GraphData graph_data = gguf_graph_data(ctx_gguf, params.model_path.c_str(), graph_path.c_str());
+
+        std::cout << "The GraphData structure and file.graph was created from the GGUF context " << std::endl;
+
+        fs::path dot_path = fs::path(params.model_path).replace_extension(".dot");
+
+        std::string dot_graph = generate_computational_graph(graph_data);
+        
+        if (!save_dot_to_file(dot_graph, dot_path.string())) {
+            throw std::runtime_error("Failed to save DOT graph to file: " + dot_path.string());
+        }
+        std::cout << "The computational graph image was generated and saved to " << dot_path.string() << std::endl;
 
 
         // Ejecutar modelo
-        run_model(params.use_gpu, graph_path);
+        //run_model(params.use_gpu, graph_path);
 
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;

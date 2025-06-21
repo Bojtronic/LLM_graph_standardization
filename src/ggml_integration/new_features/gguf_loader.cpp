@@ -60,85 +60,58 @@ std::vector<std::string> infer_src_tensors(const std::string& tensor_name, llm_a
         return src_tensors;
     }
 
-    // Extraer prefijo de bloque (ej. "blk.3.") si es un tensor de bloque
+    // Extraer prefijo de bloque para tensores en bloques
     std::string block_prefix = "";
-    size_t last_dot = tensor_name.find_last_of('.');
-    if (last_dot != std::string::npos) {
-        size_t prev_dot = tensor_name.find_last_of('.', last_dot - 1);
-        if (prev_dot != std::string::npos) {
-            block_prefix = tensor_name.substr(0, prev_dot + 1);
+    if (tensor_name.find("blk.") != std::string::npos) {
+        size_t blk_end = tensor_name.find(".", 4); // Después de "blk.X"
+        if (blk_end != std::string::npos) {
+            block_prefix = tensor_name.substr(0, blk_end + 1);
         }
     }
 
     switch(current_tensor) {
-        // Tensores de entrada
+        // Capa de embedding
         case LLM_TENSOR_TOKEN_EMBD_NORM:
-            src_tensors.push_back("token_embd");
+            src_tensors.push_back("token_embd.weight");
             break;
             
-        // Atención
+        // Atención dentro de bloques
         case LLM_TENSOR_ATTN_Q:
         case LLM_TENSOR_ATTN_K:
         case LLM_TENSOR_ATTN_V:
-            src_tensors.push_back(block_prefix + "attn_norm");
+            src_tensors.push_back(block_prefix + "attn_norm.weight");
             break;
             
         case LLM_TENSOR_ATTN_OUT:
-            src_tensors.push_back(block_prefix + "attn_q");
-            src_tensors.push_back(block_prefix + "attn_k");
-            src_tensors.push_back(block_prefix + "attn_v");
+            src_tensors.push_back(block_prefix + "attn_q.weight");
+            src_tensors.push_back(block_prefix + "attn_k.weight");
+            src_tensors.push_back(block_prefix + "attn_v.weight");
             break;
             
-        case LLM_TENSOR_ATTN_ROT_EMBD:
-            src_tensors.push_back("rope_freqs");
-            break;
-            
-        // Feed-Forward Network
-        case LLM_TENSOR_FFN_GATE_INP:
-            src_tensors.push_back(block_prefix + "attn_output");
-            break;
-            
+        // Feed-Forward Network dentro de bloques
         case LLM_TENSOR_FFN_NORM:
-            src_tensors.push_back(block_prefix + "ffn_gate_inp");
+            src_tensors.push_back(block_prefix + "attn_output.weight");
             break;
             
         case LLM_TENSOR_FFN_UP:
-            src_tensors.push_back(block_prefix + "ffn_norm");
+            src_tensors.push_back(block_prefix + "ffn_norm.weight");
             break;
             
         case LLM_TENSOR_FFN_GATE:
         case LLM_TENSOR_FFN_DOWN:
-            src_tensors.push_back(block_prefix + "ffn_up");
+            src_tensors.push_back(block_prefix + "ffn_up.weight");
             break;
             
-        // Tensores expertos (MoE)
-        case LLM_TENSOR_FFN_GATE_EXP:
-        case LLM_TENSOR_FFN_DOWN_EXP:
-        case LLM_TENSOR_FFN_UP_EXP:
-            // Estos toman como fuente los tensores base sin .%d
-            src_tensors.push_back(block_prefix + "ffn_gate");
-            src_tensors.push_back(block_prefix + "ffn_up");
-            break;
-            
-        case LLM_TENSOR_FFN_GATE_EXPS:
-        case LLM_TENSOR_FFN_DOWN_EXPS:
-        case LLM_TENSOR_FFN_UP_EXPS:
-            // Estos son agregaciones de expertos
-            src_tensors.push_back(block_prefix + "ffn_gate_inp");
-            break;
-            
-        // Tensores de salida
+        // Capa de salida
         case LLM_TENSOR_OUTPUT_NORM:
-            src_tensors.push_back(block_prefix + "ffn_down"); // Último bloque
+            // Tomamos el último bloque (asumiendo blk.31)
+            src_tensors.push_back("blk.31.ffn_down.weight");
             break;
             
         case LLM_TENSOR_OUTPUT:
-            src_tensors.push_back("output_norm");
+            src_tensors.push_back("output_norm.weight");
             break;
             
-        // Tensores sin fuentes (o no implementados)
-        case LLM_TENSOR_TOKEN_EMBD:
-        case LLM_TENSOR_ROPE_FREQS:
         default:
             break;
     }
@@ -163,77 +136,52 @@ std::string infer_dst_tensor(const std::string& tensor_name, llm_arch arch) {
         return "";
     }
 
-    // Extraer prefijo de bloque (ej. "blk.3.") si es un tensor de bloque
+    // Extraer prefijo de bloque para tensores en bloques
     std::string block_prefix = "";
-    size_t last_dot = tensor_name.find_last_of('.');
-    if (last_dot != std::string::npos) {
-        size_t prev_dot = tensor_name.find_last_of('.', last_dot - 1);
-        if (prev_dot != std::string::npos) {
-            block_prefix = tensor_name.substr(0, prev_dot + 1);
+    if (tensor_name.find("blk.") != std::string::npos) {
+        size_t blk_end = tensor_name.find(".", 4); // Después de "blk.X"
+        if (blk_end != std::string::npos) {
+            block_prefix = tensor_name.substr(0, blk_end + 1);
         }
     }
 
     switch(current_tensor) {
-        // Tensores de entrada
+        // Capa de embedding
         case LLM_TENSOR_TOKEN_EMBD:
-            return "token_embd_norm";
+            return "token_embd_norm.weight";
             
-        case LLM_TENSOR_ROPE_FREQS:
-            return block_prefix + "attn_rot_embd";
-            
-        // Atención
+        // Atención dentro de bloques
         case LLM_TENSOR_ATTN_NORM:
-            return block_prefix + "attn_q";
+            return block_prefix + "attn_q.weight";
             
         case LLM_TENSOR_ATTN_Q:
         case LLM_TENSOR_ATTN_K:
         case LLM_TENSOR_ATTN_V:
-            return block_prefix + "attn_output";
+            return block_prefix + "attn_output.weight";
             
         case LLM_TENSOR_ATTN_OUT:
-            return block_prefix + "ffn_gate_inp";
+            return block_prefix + "ffn_norm.weight";
             
-        case LLM_TENSOR_ATTN_ROT_EMBD:
-            return block_prefix + "attn_q"; // Se usa tanto en Q como K
-            
-        // Feed-Forward Network
-        case LLM_TENSOR_FFN_GATE_INP:
-            return block_prefix + "ffn_norm";
-            
+        // Feed-Forward Network dentro de bloques
         case LLM_TENSOR_FFN_NORM:
-            return block_prefix + "ffn_up";
+            return block_prefix + "ffn_up.weight";
             
         case LLM_TENSOR_FFN_UP:
-            return block_prefix + "ffn_gate"; // O ffn_down en arquitecturas sin MoE
+            return block_prefix + "ffn_gate.weight";
             
         case LLM_TENSOR_FFN_GATE:
-            return block_prefix + "ffn_down";
-            
         case LLM_TENSOR_FFN_DOWN:
-            // Si es el último bloque, va a output_norm, sino al siguiente bloque
-            return "output_norm"; // Simplificación - en realidad debería verificar si es el último bloque
+            // Si es el último bloque (blk.31), va a output_norm
+            if (block_prefix == "blk.31.") {
+                return "output_norm.weight";
+            }
+            // Para otros bloques, iría al siguiente bloque (pero no lo implementamos aquí)
+            return "";
             
-        // Tensores expertos (MoE)
-        case LLM_TENSOR_FFN_GATE_EXP:
-            return block_prefix + "ffn_gate_exps";
-            
-        case LLM_TENSOR_FFN_UP_EXP:
-            return block_prefix + "ffn_up_exps";
-            
-        case LLM_TENSOR_FFN_DOWN_EXP:
-            return block_prefix + "ffn_down_exps";
-            
-        case LLM_TENSOR_FFN_GATE_EXPS:
-        case LLM_TENSOR_FFN_UP_EXPS:
-        case LLM_TENSOR_FFN_DOWN_EXPS:
-            return block_prefix + "ffn_down";
-            
-        // Tensores de salida
+        // Capa de salida
         case LLM_TENSOR_OUTPUT_NORM:
-            return "output";
+            return "output.weight";
             
-        // Tensores sin destino (o no implementados)
-        case LLM_TENSOR_OUTPUT:
         default:
             return "";
     }
@@ -534,6 +482,24 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
         out << "OPERATION: " << tensor.op;
         out.put('\n');
 
+        tensor.src_tensors = infer_src_tensors(tensor.name, arch);
+
+        out << "SOURCE: ";
+        if (!tensor.src_tensors.empty()) {
+            // Escribe todos los tensores excepto el último
+            for (size_t j = 0; j < tensor.src_tensors.size() - 1; ++j) {
+                out << tensor.src_tensors[j] << ',';
+            }
+            // Escribe el último tensor sin coma
+            out << tensor.src_tensors.back();
+        }
+        out.put('\n');
+
+        tensor.dst_tensor = infer_dst_tensor(tensor.name, arch);
+
+        out << "DESTINATION: " << tensor.dst_tensor;
+        out.put('\n');
+
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////
         out << "DATA_START:";
         out.put('\n');
@@ -562,7 +528,7 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
                         //    throw std::runtime_error("Error reading data from tensor");
                         //}
 
-                        tensor.data = float_data;
+                        //tensor.data = float_data;
 
                         out.write(reinterpret_cast<const char *>(float_data.data()), tensor.size);
                         break;
@@ -574,7 +540,7 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
 
                         file.read(reinterpret_cast<char *>(f16_data.data()), tensor.size);
 
-                        tensor.data = f16_data;
+                        //tensor.data = f16_data;
 
                         out.write(reinterpret_cast<const char *>(f16_data.data()), tensor.size);
                         break;
@@ -586,7 +552,7 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
 
                         file.read(reinterpret_cast<char *>(i32_data.data()), tensor.size);
 
-                        tensor.data = i32_data;
+                        //tensor.data = i32_data;
 
                         out.write(reinterpret_cast<const char *>(i32_data.data()), tensor.size);
                         break;
@@ -598,7 +564,7 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
 
                         file.read(reinterpret_cast<char *>(i16_data.data()), tensor.size);
 
-                        tensor.data = i16_data;
+                        //tensor.data = i16_data;
 
                         out.write(reinterpret_cast<const char *>(i16_data.data()), tensor.size);
                         break;
@@ -610,7 +576,7 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
 
                         file.read(reinterpret_cast<char *>(i8_data.data()), tensor.size);
 
-                        tensor.data = i8_data;
+                        //tensor.data = i8_data;
 
                         out.write(reinterpret_cast<const char *>(i8_data.data()), tensor.size);
                         break;
@@ -623,7 +589,7 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
                             throw std::runtime_error("Failed to read raw tensor data");
                         }
                                                 
-                        tensor.data = raw_data;
+                        //tensor.data = raw_data;
                         
                         out.write(reinterpret_cast<const char*>(raw_data.data()), raw_data.size());
                         
@@ -659,7 +625,7 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
                     throw std::runtime_error("Error reading quantized data");
                 }
 
-                tensor.data = quant_data;
+                //tensor.data = quant_data;
 
                 out.write(reinterpret_cast<const char*>(quant_data.data()), quant_data.size());
             }
@@ -668,14 +634,6 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
         out.put('\n');
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-        // Check that we do not load the data (for testing)
-        // tensor.data = std::vector<uint8_t>();
-
-        // Infer connections
-        //llm_arch arch = llm_arch_from_string(architecture);
-        //tensor.op = infer_operation(tensor.name, arch);
-        tensor.src_tensors = infer_src_tensors(tensor.name, graph_data.tensors);
-        tensor.dst_tensor = infer_dst_tensor(tensor.name);
 
         graph_data.tensors.push_back(tensor);
     }
@@ -690,7 +648,7 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
  * operations and their connections in the GGUF model. Each tensor is represented
  * as a node with operation type and dimensions, and connections show data flow.
  *
- * @param graph_data The GraphData structure containing tensor information
+ * @param graph The GraphData structure containing tensor information
  * @return std::string The DOT format graph as a string
  */
 std::string generate_computational_graph(const GraphData& graph) {

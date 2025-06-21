@@ -17,6 +17,7 @@ set(SOURCES
     ../../../new_features/whisper_runner.cpp
     ../../../new_features/graph_file.cpp
     ../../../new_features/quantization_management.cpp
+    ../../../new_features/arch_info.cpp
 )
 
 # Crear el ejecutable

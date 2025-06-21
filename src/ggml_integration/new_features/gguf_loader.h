@@ -50,14 +50,13 @@ ggml_op infer_operation_fallback(const std::string& name);
  * @note This function is used to infer the source tensors for a given tensor
  * @return List of inferred source tensor names
  */
-std::vector<std::string> infer_src_tensors(const std::string& name, const std::vector<GGUFTensor>& tensors);
-
+std::vector<std::string> infer_src_tensors(const std::string& tensor_name, llm_arch arch);
 /**
  * @brief Infers the destination tensor based on the actual tensor name
  * @param name tensor name
  * @return Inferred destination tensor name
  */
-std::string infer_dst_tensor(const std::string& name);
+std::string infer_dst_tensor(const std::string& tensor_name, llm_arch arch);
 
 std::string generate_computational_graph(const GraphData& graph);
 
