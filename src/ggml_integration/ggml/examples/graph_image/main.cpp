@@ -198,24 +198,20 @@ std::string generate_computational_graph_test(const GraphData &graph)
     dot_output = "digraph ComputationalGraph {\n";
     dot_output += "    rankdir=LR;\n"; // Flujo izquierda a derecha
     dot_output += "    node [fontname=\"Helvetica\", fontsize=10];\n";
-    dot_output += "    edge [arrowsize=0.8];\n\n";
+    dot_output += "    edge [arrowsize=0.8];\n";
+    dot_output += "    compound=true;\n"; // Permite conectar bordes entre subgrafos\n\n";
 
     // Función para sanitizar nombres (reemplaza caracteres especiales)
-    auto sanitize_name = [](const std::string &name)
-    {
+    auto sanitize_name = [](const std::string &name) {
         std::string sanitized;
-        for (char c : name)
-        {
-            if (c == '.')
-            {
+        for (char c : name) {
+            if (c == '.') {
                 sanitized += '_'; // Reemplazar puntos por guiones bajos
             }
-            else if (std::isalnum(c) || c == '_')
-            {
+            else if (std::isalnum(c) || c == '_') {
                 sanitized += c;
             }
-            else
-            {
+            else {
                 sanitized += '_'; // Reemplazar otros caracteres especiales
             }
         }
@@ -223,86 +219,48 @@ std::string generate_computational_graph_test(const GraphData &graph)
     };
 
     // Función para generar la etiqueta completa del tensor
-    auto get_tensor_label = [](const GGUFTensor &tensor)
-    {
+    auto get_tensor_label = [](const GGUFTensor &tensor) {
         std::string label = "{ " + tensor.name + " | ";
 
         // Dimensiones
         label += "Dims: ";
-        if (tensor.dims.empty())
-        {
+        if (tensor.dims.empty()) {
             label += "scalar";
         }
-        else
-        {
-            for (size_t i = 0; i < tensor.dims.size(); ++i)
-            {
-                if (i > 0)
-                    label += "×";
+        else {
+            for (size_t i = 0; i < tensor.dims.size(); ++i) {
+                if (i > 0) label += "×";
                 label += std::to_string(tensor.dims[i]);
             }
         }
 
         // Tipo de datos
         label += " | Type: ";
-        switch (tensor.type)
-        {
-        case GGML_TYPE_F32:
-            label += "f32";
-            break;
-        case GGML_TYPE_F16:
-            label += "f16";
-            break;
-        case GGML_TYPE_I32:
-            label += "i32";
-            break;
-        case GGML_TYPE_I16:
-            label += "i16";
-            break;
-        case GGML_TYPE_I8:
-            label += "i8";
-            break;
-        case GGML_TYPE_Q2_K:
-            label += "Q2_K";
-            break;
-        case GGML_TYPE_Q3_K:
-            label += "Q3_K";
-            break;
-        case GGML_TYPE_Q6_K:
-            label += "Q6_K";
-            break;
-        default:
-            label += "unknown";
-            break;
+        switch (tensor.type) {
+            case GGML_TYPE_F32: label += "f32"; break;
+            case GGML_TYPE_F16: label += "f16"; break;
+            case GGML_TYPE_I32: label += "i32"; break;
+            case GGML_TYPE_I16: label += "i16"; break;
+            case GGML_TYPE_I8:  label += "i8"; break;
+            case GGML_TYPE_Q2_K: label += "Q2_K"; break;
+            case GGML_TYPE_Q3_K: label += "Q3_K"; break;
+            case GGML_TYPE_Q6_K: label += "Q6_K"; break;
+            default: label += "unknown"; break;
         }
 
         // Operación (si aplica)
-        if (!tensor.src_tensors.empty())
-        {
+        if (!tensor.src_tensors.empty()) {
             label += " | Op: ";
-            switch (tensor.op)
-            {
-            case GGML_OP_ADD:
-                label += "ADD";
-                break;
-            case GGML_OP_MUL:
-                label += "MUL";
-                break;
-            case GGML_OP_MUL_MAT:
-                label += "MATMUL";
-                break;
-            case GGML_OP_SOFT_MAX:
-                label += "SOFTMAX";
-                break;
-            case GGML_OP_NORM:
-                label += "NORM";
-                break;
-            case GGML_OP_UNARY:
-                label += (tensor.unary_op == GGML_UNARY_OP_RELU) ? "RELU" : "UNARY";
-                break;
-            default:
-                label += "OP";
-                break;
+            switch (tensor.op) {
+                case GGML_OP_ADD: label += "ADD"; break;
+                case GGML_OP_MUL: label += "MUL"; break;
+                case GGML_OP_MUL_MAT: label += "MATMUL"; break;
+                case GGML_OP_SOFT_MAX: label += "SOFTMAX"; break;
+                case GGML_OP_NORM: label += "NORM"; break;
+                case GGML_OP_UNARY: 
+                    label += (tensor.unary_op == GGML_UNARY_OP_RELU) ? "RELU" : "UNARY"; 
+                    break;
+                default: label += "OP"; break;
             }
         }
 
@@ -313,99 +271,169 @@ std::string generate_computational_graph_test(const GraphData &graph)
     // Identificar tensores de entrada y salida
     std::set<std::string> input_tensors;
     std::set<std::string> output_tensors;
+    std::map<std::string, int> layer_map; // Mapea tensores a sus capas
 
-    for (const auto &tensor : graph.tensors)
-    {
-        if (tensor.src_tensors.empty())
-        {
+    for (const auto &tensor : graph.tensors) {
+        if (tensor.src_tensors.empty()) {
             input_tensors.insert(tensor.name);
         }
 
+        // Determinar a qué capa pertenece cada tensor
+        size_t blk_pos = tensor.name.find("blk.");
+        if (blk_pos != std::string::npos) {
+            size_t dot_pos = tensor.name.find('.', blk_pos + 4);
+            if (dot_pos != std::string::npos) {
+                std::string layer_str = tensor.name.substr(blk_pos + 4, dot_pos - (blk_pos + 4));
+                try {
+                    int layer = std::stoi(layer_str);
+                    layer_map[tensor.name] = layer;
+                } catch (...) {}
+            }
+        }
+
         bool is_output = true;
-        for (const auto &other : graph.tensors)
-        {
-            if (std::find(other.src_tensors.begin(), other.src_tensors.end(), tensor.name) != other.src_tensors.end())
-            {
+        for (const auto &other : graph.tensors) {
+            if (std::find(other.src_tensors.begin(), other.src_tensors.end(), tensor.name) != other.src_tensors.end()) {
                 is_output = false;
                 break;
             }
         }
-        if (is_output && !tensor.src_tensors.empty())
-        {
+        if (is_output && !tensor.src_tensors.empty()) {
             output_tensors.insert(tensor.name);
         }
     }
 
-    // Generar nodos de tensores
-    for (const auto &tensor : graph.tensors)
-    {
-        std::string safe_name = sanitize_name(tensor.name);
+    // Agrupar tensores por capa
+    std::map<int, std::vector<GGUFTensor>> layer_tensors;
+    for (const auto &tensor : graph.tensors) {
+        int layer = -1; // -1 para capas especiales (entrada/salida)
+        
+        if (tensor.name.find("blk.") != std::string::npos) {
+            auto it = layer_map.find(tensor.name);
+            if (it != layer_map.end()) {
+                layer = it->second;
+            }
+        }
+        layer_tensors[layer].push_back(tensor);
+    }
 
-        if (input_tensors.count(tensor.name))
-        {
-            // Tensor de entrada
-            dot_output += "    " + safe_name + " [label=\"" + tensor.name +
-                          "\\n(Input)\", shape=box, style=filled, fillcolor=\"#98FB98\"];\n";
+    // Generar subgrafos para cada capa
+    for (const auto &layer_pair : layer_tensors) {
+        int layer = layer_pair.first;
+        const auto &tensors = layer_pair.second;
+
+        if (layer == -1) {
+            // Tensores de entrada/salida globales (no están en ninguna capa)
+            continue;
         }
-        else if (output_tensors.count(tensor.name))
-        {
-            // Tensor de salida
-            dot_output += "    " + safe_name + " [label=\"" + get_tensor_label(tensor) +
-                          "\", shape=box, style=filled, fillcolor=\"#FFA07A\"];\n";
+
+        
+        dot_output += "    subgraph cluster_" + std::to_string(layer) + " {\n";
+        dot_output += "        label=\"Layer " + std::to_string(layer) + "\";\n";
+        //dot_output += "        label=\"\"; \n";
+        dot_output += "        style=filled;\n";
+        //dot_output += "        style=invis;\n";
+        dot_output += "        color=lightgrey;\n";
+        dot_output += "        fillcolor=\"#f8f8f8\";\n";
+        //dot_output += "        fillcolor=none;\n"; // Sin relleno
+        dot_output += "        node [style=filled, fillcolor=\"#E6E6FA\"];\n\n";
+        
+
+        // Generar nodos para esta capa
+        for (const auto &tensor : tensors) {
+            std::string safe_name = sanitize_name(tensor.name);
+            dot_output += "        " + safe_name + " [label=\"" + get_tensor_label(tensor) + "\", shape=record];\n";
         }
-        else
-        {
-            // Tensor normal
-            dot_output += "    " + safe_name + " [label=\"" + get_tensor_label(tensor) +
-                          "\", shape=record, style=filled, fillcolor=\"#E6E6FA\"];\n";
+
+        dot_output += "    }\n\n";
+    }
+
+    // Generar nodos especiales (entrada/salida) fuera de los subgrafos
+    for (const auto &tensor : graph.tensors) {
+        if (layer_map.find(tensor.name) == layer_map.end()) {
+            std::string safe_name = sanitize_name(tensor.name);
+            std::string fillcolor;
+
+            if (input_tensors.count(tensor.name)) {
+                // Tensor de entrada
+                dot_output += "    " + safe_name + " [label=\"" + get_tensor_label(tensor) + 
+                              "\\n(Input)\", shape=box, style=filled, fillcolor=\"#98FB98\"];\n";
+            }
+            else if (output_tensors.count(tensor.name)) {
+                // Tensor de salida
+                dot_output += "    " + safe_name + " [label=\"" + get_tensor_label(tensor) + 
+                              "\", shape=box, style=filled, fillcolor=\"#FFA07A\"];\n";
+            }
+            else {
+                // Otros tensores globales - gris intermedio
+                fillcolor = "#C0C0C0";
+                dot_output += "    " + safe_name + " [label=\"" + get_tensor_label(tensor) + 
+                              "\", shape=record, style=filled, fillcolor=\"" + fillcolor + "\"];\n";
+            }
         }
     }
 
     // Generar conexiones (operaciones)
-    for (const auto &tensor : graph.tensors)
-    {
-        if (!tensor.src_tensors.empty())
-        {
+    for (const auto &tensor : graph.tensors) {
+        if (!tensor.src_tensors.empty()) {
             std::string safe_dest = sanitize_name(tensor.name);
 
-            if (tensor.src_tensors.size() > 1)
-            {
-                // Para operaciones paralelas, agrupar los nodos fuente
-                dot_output += "    { rank=same; ";
-                for (const auto &src : tensor.src_tensors)
-                {
-                    dot_output += sanitize_name(src) + " ";
-                }
-                dot_output += "}\n";
+            for (const auto &src : tensor.src_tensors) {
+                std::string safe_src = sanitize_name(src);
+                
+                // Determinar si la conexión cruza capas
+                int src_layer = -1;
+                int dest_layer = -1;
+                auto src_it = layer_map.find(src);
+                auto dest_it = layer_map.find(tensor.name);
+                
+                if (src_it != layer_map.end()) src_layer = src_it->second;
+                if (dest_it != layer_map.end()) dest_layer = dest_it->second;
+                
+                // Determinar si es la conexión de entrada al primer bloque (blk.0)
+                bool is_first_block_input = (dest_layer == 0 && src_layer == -1);
+                // Determinar si es la conexión de salida del último bloque
+                bool is_last_block_output = (src_layer == (layer_tensors.size() - 1) && dest_layer == -1);
 
-                for (const auto &src : tensor.src_tensors)
-                {
-                    dot_output += "    " + sanitize_name(src) + " -> " + safe_dest + ";\n";
+                bool is_consecutive_cluster_connection = (src_layer != -1 && dest_layer != -1 && abs(src_layer - dest_layer) == 1);
+
+                if (!is_first_block_input && !is_last_block_output) {
+                    if (src_layer != -1 && dest_layer != -1 && src_layer != dest_layer) {
+                        dot_output += "    " + safe_src + " -> " + safe_dest;
+                        dot_output += " [ltail=cluster_" + std::to_string(src_layer);
+                        dot_output += ", lhead=cluster_" + std::to_string(dest_layer) + "];\n";
+                    } 
+                    else {
+                        dot_output += "    " + safe_src + " -> " + safe_dest + ";\n"; 
+                    }
                 }
-            }
-            else
-            {
-                // Conexión simple
-                dot_output += "    " + sanitize_name(tensor.src_tensors[0]) + " -> " + safe_dest + ";\n";
             }
         }
     }
 
-    // Forzar orden horizontal por niveles de procesamiento
-    dot_output += "\n    // Ordenamiento horizontal\n";
-    dot_output += "    { rank=same; ";
-    for (const auto &tensor : input_tensors)
-    {
-        dot_output += sanitize_name(tensor) + " ";
+    // Ordenar capas horizontalmente
+    dot_output += "\n    // Ordenamiento de capas\n";
+    for (int i = 0; i < static_cast<int>(layer_tensors.size()) - 2; i++) {
+        if (layer_tensors.count(i) && layer_tensors.count(i+1)) {
+            dot_output += "    cluster_" + std::to_string(i) + " -> cluster_" + std::to_string(i+1) + 
+                         " [style=invis, weight=10];\n";
+        }
     }
-    dot_output += "}\n";
 
-    dot_output += "    { rank=same; ";
-    for (const auto &tensor : output_tensors)
-    {
-        dot_output += sanitize_name(tensor) + " ";
+    // Conexión desde la entrada al primer bloque
+    if (!layer_tensors.empty() && layer_tensors.count(0)) {
+        dot_output += "    token_embd_weight -> blk_0_attn_norm_weight [lhead=cluster_0];\n";
     }
-    dot_output += "}\n";
+
+    // Conexión desde el último bloque a la salida
+    if (!layer_tensors.empty()) {
+        int last_layer = layer_tensors.rbegin()->first;
+        if (last_layer != -1) {
+            std::string last_block_output = "blk_" + std::to_string(last_layer) + "_block_output";
+            dot_output += "    " + last_block_output + " -> output_norm_weight [ltail=cluster_" + 
+                          std::to_string(last_layer) + "];\n";
+        }
+    }
 
     dot_output += "}\n";
     return dot_output;
@@ -548,7 +576,7 @@ GraphData create_large_transformer_graph()
     std::string prev_tensor = "token_embd.weight";
 
     //for (int i = 0; i < 32; ++i)
-    for (int i = 0; i < 1; ++i)
+    for (int i = 0; i < 4; ++i)
     {
         std::string blk_prefix = "blk." + std::to_string(i) + ".";
 
