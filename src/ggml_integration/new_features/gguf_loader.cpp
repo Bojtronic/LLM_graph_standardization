@@ -614,11 +614,13 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
                     throw std::runtime_error("Quantization type " + std::to_string(tensor.type) + " not supported");
             }
 
+                /*
                 if (tensor.size % block_size != 0) {
                     throw std::runtime_error("Tensor size " + std::to_string(tensor.size) + 
                         " not aligned with block size " + std::to_string(block_size) +
                         " for type " + ggml_type_name(tensor.type));
                 }
+                */
 
                 std::vector<uint8_t> quant_data(tensor.size);
                 if (!file.read(reinterpret_cast<char*>(quant_data.data()), tensor.size)) {

@@ -14,12 +14,15 @@ cmake --build build --config Release --target run_graph
 ./build/bin/run_graph
 
 
-./run_graph -m llama-2-7b.Q2_K.gguf
+
 
 mv ~/test/Graph/models/archivo.ext ~/test/Graph/
 
 
+./run_graph -m llama-2-7b.Q2_K.gguf
 
 dot -Tpng sample_graph.dot -o sample_graph.png
+dot -Tpng llama-2-7b.Q2_K.dot -o llama-2-7b.Q2_K.png
+
 
 
