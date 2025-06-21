@@ -1802,3 +1802,4 @@ ggml_op get_tensor_operation(llm_tensor tensor) {
     auto it = LLM_TENSOR_INFOS.find(tensor);
     return it != LLM_TENSOR_INFOS.end() ? it->second.op : GGML_OP_NONE;
 }
+

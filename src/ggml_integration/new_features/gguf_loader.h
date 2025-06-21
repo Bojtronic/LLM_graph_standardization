@@ -59,5 +59,9 @@ std::vector<std::string> infer_src_tensors(const std::string& name, const std::v
  */
 std::string infer_dst_tensor(const std::string& name);
 
+std::string generate_computational_graph(const GraphData& graph);
+
+bool save_dot_to_file(const std::string& dot_content, const std::string& filename);
+
 #endif // GGUF_LOADER_H
 
