@@ -576,7 +576,7 @@ GraphData create_large_transformer_graph()
     std::string prev_tensor = "token_embd.weight";
 
     //for (int i = 0; i < 32; ++i)
-    for (int i = 0; i < 4; ++i)
+    for (int i = 0; i < 2; ++i)
     {
         std::string blk_prefix = "blk." + std::to_string(i) + ".";
 

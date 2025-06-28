@@ -1785,13 +1785,30 @@ bool get_tensor_by_name(const std::string &name, llm_arch arch, llm_tensor& out_
         return false;
     }
 
-    // Buscar el tensor que coincida con el patrón
+    // Primero extraer el nombre base (sin .weight/.bias/etc)
+    std::string base_name = name;
+    size_t dot_pos = base_name.find_last_of('.');
+    if (dot_pos != std::string::npos) {
+        base_name = base_name.substr(0, dot_pos);
+    }
+
+    // Primero buscar coincidencias exactas
     for (const auto& tensor_entry : arch_it->second) {
-        std::string pattern = tensor_entry.second;
-        pattern = std::regex_replace(pattern, std::regex("%d"), "\\d+");
-        if (std::regex_match(name, std::regex(pattern))) {
+        if (base_name == tensor_entry.second) {
             out_tensor = tensor_entry.first;
             return true;
+        }
+    }
+
+    // Si no hay coincidencia exacta, buscar patrones con %d
+    for (const auto& tensor_entry : arch_it->second) {
+        std::string pattern = tensor_entry.second;
+        if (pattern.find("%d") != std::string::npos) {
+            pattern = std::regex_replace(pattern, std::regex("%d"), "\\d+");
+            if (std::regex_match(base_name, std::regex(pattern))) {
+                out_tensor = tensor_entry.first;
+                return true;
+            }
         }
     }
 
