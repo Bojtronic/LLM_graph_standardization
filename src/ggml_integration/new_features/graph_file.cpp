@@ -256,8 +256,16 @@ GGUFMetadata read_metadata(const std::string &filename, const std::string &key)
     }
 
     // 2. Read header
-    GGUFHeader header;
-    in.read(reinterpret_cast<char *>(&header), sizeof(GGUFHeader));
+    //GGUFHeader header;
+    //in.read(reinterpret_cast<char *>(&header), sizeof(GGUFHeader));
+
+    uint64_t n_tensors;
+    in.read(reinterpret_cast<char *>(&n_tensors), sizeof(uint64_t));
+
+    in.ignore(1); // Skip \n
+
+    uint64_t n_kv;
+    in.read(reinterpret_cast<char *>(&n_kv), sizeof(uint64_t));
 
     // Read and verify header newline
     if (in.get() != '\n')
@@ -276,6 +284,8 @@ GGUFMetadata read_metadata(const std::string &filename, const std::string &key)
     }
 
     // 4. Read metadata count (uint32_t)
+
+    /*
     uint32_t metadata_count;
     in.read(reinterpret_cast<char *>(&metadata_count), sizeof(uint32_t));
     if (in.get() != '\n')
@@ -283,9 +293,10 @@ GGUFMetadata read_metadata(const std::string &filename, const std::string &key)
         std::cerr << "Invalid metadata count format\n";
         return GGUFMetadata();
     }
+    */
 
     // 5. Search for the requested key
-    for (uint32_t i = 0; i < metadata_count; ++i)
+    for (uint64_t i = 0; i < n_kv; ++i)
     {
         GGUFMetadata md;
 

@@ -64,6 +64,15 @@ int main(int argc, char** argv) {
         std::cout << "The computational graph image was generated and saved to " << dot_path.string() << std::endl;
 
 
+        GGUFMetadata md = read_metadata("llama-2-7b.Q2_K.graph", "llama.rope.dimension_count");
+
+        if (md.type == GGUF_TYPE_COUNT) {
+            std::cerr << "Metadata key not found in the graph file." << std::endl;
+        } else {
+            std::cout << "Key: " << md.key << std::endl;
+            std::cout << "Value: " << md.value.u32 << std::endl;
+        }
+
         // Ejecutar modelo
         //run_model(params.use_gpu, graph_path);
 
