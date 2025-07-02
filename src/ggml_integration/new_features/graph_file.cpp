@@ -496,6 +496,28 @@ GGUFMetadata read_metadata(const std::string &filename, const std::string &key)
     return GGUFMetadata(); // Not found
 }
 
+
+
+bool tensor_name_matches(const std::string &stored_name, const std::string &search_name) {
+    // Si son exactamente iguales, coinciden
+    if (stored_name == search_name) {
+        return true;
+    }
+    
+    // Verificar si search_name es stored_name + algún sufijo común
+    if (search_name.size() > stored_name.size() &&
+        search_name.substr(0, stored_name.size()) == stored_name &&
+        search_name[stored_name.size()] == '.') {
+        // Los sufijos comunes pueden ser: weight, bias, etc.
+        std::string suffix = search_name.substr(stored_name.size() + 1);
+        if (suffix == "weight" || suffix == "bias" || suffix == "scale" || suffix == "offset") {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
 /**
  * @brief Reads a tensor by name from a .graph file
  * @param filename Input .graph filename
@@ -534,8 +556,8 @@ GGUFTensor read_tensor(const std::string &filename, const std::string &name)
         return GGUFTensor();
     }
 
-    uint32_t tensors_count;
-    in.read(reinterpret_cast<char *>(&tensors_count), sizeof(uint32_t));
+    uint64_t tensors_count;
+    in.read(reinterpret_cast<char *>(&tensors_count), sizeof(uint64_t));
 
     // Verify that the reading was successful
     if (!in)
@@ -545,12 +567,13 @@ GGUFTensor read_tensor(const std::string &filename, const std::string &name)
     }
 
     // Discard the following '\n' (if any)
-    if (in.peek() == '\n')
-        in.ignore(1);
+    //if (in.peek() == '\n')
+    //    in.ignore(1);
 
+    in.ignore(1);
 
     // Search for the tensor
-    for (uint32_t i = 0; i < tensors_count; ++i)
+    for (uint64_t i = 0; i < tensors_count; ++i)
     {
         GGUFTensor tensor;
 
@@ -573,13 +596,13 @@ GGUFTensor read_tensor(const std::string &filename, const std::string &name)
             {
                 tensor.name = line.substr(6);
             }
-            else if (line.find("ORIGINAL_TYPE: ") == 0)
+            else if (line.find("TYPE: ") == 0)
             { // Modified to match format ///////////////////////////////////////////
-                tensor.type = static_cast<enum ggml_type>(std::stoi(line.substr(15)));
+                tensor.type = static_cast<enum ggml_type>(std::stoi(line.substr(6)));
             }
-            else if (line.find("DATA_SIZE: ") == 0)
+            else if (line.find("SIZE: ") == 0)
             {
-                tensor.size = std::stoull(line.substr(10));
+                tensor.size = std::stoull(line.substr(6));
             }
             else if (line.find("NDIMS: ") == 0)
             {
@@ -597,6 +620,10 @@ GGUFTensor read_tensor(const std::string &filename, const std::string &name)
         }
 
         // Check if this is the tensor we want
+        //if (!tensor_name_matches(tensor.name, name))
+
+        std::cout << "Searching for tensor: " << name << "\n";
+        std::cout << "Found tensor: " << tensor.name << "\n";
         if (tensor.name != name)
         {
             // Skip binary data

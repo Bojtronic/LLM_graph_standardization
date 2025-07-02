@@ -63,7 +63,7 @@ int main(int argc, char** argv) {
         }
         std::cout << "The computational graph image was generated and saved to " << dot_path.string() << std::endl;
 
-
+        /*
         GGUFMetadata md = read_metadata("llama-2-7b.Q2_K.graph", "llama.rope.dimension_count");
 
         if (md.type == GGUF_TYPE_COUNT) {
@@ -72,6 +72,22 @@ int main(int argc, char** argv) {
             std::cout << "Key: " << md.key << std::endl;
             std::cout << "Value: " << md.value.u32 << std::endl;
         }
+        */
+
+        GGUFTensor tensor = read_tensor(graph_path.string(), "blk.5.attn_norm.weight");
+        if (tensor.name.empty()) {
+            std::cerr << "Tensor not found in the graph file." << std::endl;
+        } else {
+            std::cout << "Tensor Name: " << tensor.name << std::endl;
+            std::cout << "Tensor Type: " << ggml_type_name(tensor.type) << std::endl;
+            std::cout << "Tensor Size: " << tensor.size << " bytes" << std::endl;
+            std::cout << "Tensor Dimensions: ";
+            for (const auto& dim : tensor.dims) {
+                std::cout << dim << " ";        
+            
+            }
+        }
+
 
         // Ejecutar modelo
         //run_model(params.use_gpu, graph_path);

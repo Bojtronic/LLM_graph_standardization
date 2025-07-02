@@ -480,7 +480,10 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
         llm_arch arch = llm_arch_from_string(architecture);
         tensor.op = infer_operation(tensor.name, arch);
 
-        out << "OPERATION: " << tensor.op;
+        //out << "OPERATION: " << tensor.op;
+        const std::string op_prefix = "OPERATION: ";
+        std::string op_str = std::to_string(static_cast<int>(tensor.op));
+        out.write(op_str.c_str(), op_str.size());
         out.put('\n');
 
         tensor.src_tensors = infer_src_tensors(tensor.name, arch);
@@ -488,7 +491,9 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
         //std::string src_tensors_str;
 
         
-        out << "SOURCE: ";
+        //out << "SOURCE: ";
+        const std::string source_prefix = "SOURCE: ";
+        out.write(source_prefix.c_str(), source_prefix.size());
         if (!tensor.src_tensors.empty()) {
             // Escribe todos los tensores excepto el último
             for (size_t j = 0; j < tensor.src_tensors.size() - 1; ++j) {
@@ -651,7 +656,12 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
 
 
         graph_data.tensors.push_back(tensor);
+
+        const std::string end_tensors_marker = "---END_TENSOR---";
+        out.write(end_tensors_marker.c_str(), end_tensors_marker.size());
+        out.put('\n');
     }
+    out.close();
 
     return graph_data;
 }
