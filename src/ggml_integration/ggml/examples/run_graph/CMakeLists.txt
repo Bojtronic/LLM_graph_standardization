@@ -18,6 +18,7 @@ set(SOURCES
     ../../../new_features/graph_file.cpp
     ../../../new_features/quantization_management.cpp
     ../../../new_features/arch_info.cpp
+    ../../src/ggml-quants.c
 )
 
 # Crear el ejecutable

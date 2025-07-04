@@ -14,12 +14,12 @@
 #include "arch_info.h"
 #include "gguf.h"
 #include "arch_info.h"
-#include "quantization_management.h"
+//#include "quantization_management.h"
 #include <regex>
 //#include "ggml-common.h"
 //#include "ggml.h"
 //#include "ggml-impl.h"
-//#include "ggml-quants.h" // falta utilizar los recursos de este archivo, se estuvo utilizando la implementación propia de quantization_management.h
+#include "ggml-quants.h" // falta utilizar los recursos de este archivo, se estuvo utilizando la implementación propia de quantization_management.h
 
 
 /**
@@ -509,14 +509,7 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
         out << "DESTINATION: " << tensor.dst_tensor;
         out.put('\n');
 
-        /*
-        std::cout << "\n * Processing tensor: " << tensor.name 
-                  << " | Operation: " << tensor.op 
-                  << " | Source: " << src_tensors_str
-                  << " | Destination: " << tensor.dst_tensor
-                  << std::endl;
-        */
-
+        
         ////////////////////////////////////////////////////////////////////////////////////////////////////////////
         out << "DATA_START:";
         out.put('\n');
