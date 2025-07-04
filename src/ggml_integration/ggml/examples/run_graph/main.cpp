@@ -74,6 +74,7 @@ int main(int argc, char** argv) {
         }
         */
 
+        /*
         GGUFTensor tensor = read_tensor(graph_path.string(), "blk.5.attn_norm.weight");
         if (tensor.name.empty()) {
             std::cerr << "Tensor not found in the graph file." << std::endl;
@@ -87,7 +88,29 @@ int main(int argc, char** argv) {
             
             }
         }
+        */
 
+
+        const std::vector<std::string> required_metadata = {
+        //"llama.embedding_length",
+        //"llama.attention.head_count",
+        //"llama.block_count",
+        //"llama.attention.layer_norm_rms_epsilon",
+        //"llama.context_length",
+        "tokenizer.ggml.tokens"};
+
+        for (const auto &meta : required_metadata)
+        {
+            GGUFMetadata md = read_metadata(graph_path.string(), meta);
+            if (md.type == GGUF_TYPE_COUNT)
+            { // Not found
+                std::cerr << "Error: Missing required metadata '" << meta << "'\n";
+                return false;
+            }
+            else {
+                std::cout << "OK: Metadata '" << meta << "' found.\n";
+            }
+        }
 
         // Ejecutar modelo
         //run_model(params.use_gpu, graph_path);

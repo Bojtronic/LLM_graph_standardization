@@ -475,6 +475,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         }
     }
 
+    
     // Extracción de parámetros con verificación
     int n_embd = read_metadata(model_filename, "llama.embedding_length").value.i32;
     int n_head = read_metadata(model_filename, "llama.attention.head_count").value.i32;

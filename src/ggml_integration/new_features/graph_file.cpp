@@ -622,8 +622,9 @@ GGUFTensor read_tensor(const std::string &filename, const std::string &name)
         // Check if this is the tensor we want
         //if (!tensor_name_matches(tensor.name, name))
 
-        std::cout << "Searching for tensor: " << name << "\n";
-        std::cout << "Found tensor: " << tensor.name << "\n";
+        //std::cout << "Searching for tensor: " << name << "\n";
+        //std::cout << "Found tensor: " << tensor.name << "\n";
+        
         if (tensor.name != name)
         {
             // Skip binary data
