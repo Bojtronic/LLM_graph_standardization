@@ -386,7 +386,6 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
                 out.put('\n');
                 break;
             case GGUF_TYPE_STRING:
-
             {
                 std::vector<std::string> strings;
                 strings.reserve(md.array.size);
@@ -394,13 +393,24 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
                 {
                     const char *str = gguf_get_arr_str(ctx, i, j);
                     std::string safe_str = str ? str : "";
-                    // strings.push_back(safe_str);
+                    
+                    // Codificar el string para evitar caracteres problemáticos
+                    std::string encoded_str;
+                    for (char c : safe_str) {
+                        if (c == '\n') encoded_str += "\\n";
+                        else if (c == '\0') encoded_str += "\\0";
+                        else if (c == '\\') encoded_str += "\\\\";
+                        else encoded_str += c;
+                    }
+                    
                     strings.emplace_back(safe_str);
-
-                    out.write(safe_str.c_str(), safe_str.size());
-                    out.put('\0');
+                    
+                    // Escribir tamaño primero, luego los datos
+                    uint32_t len = encoded_str.size();
+                    out.write(reinterpret_cast<const char*>(&len), sizeof(uint32_t));
+                    out.write(encoded_str.c_str(), len);
                 }
-                out.put('\n');
+                out.put('\n'); // newline al final del array
                 md.array.data = strings;
                 break;
             }

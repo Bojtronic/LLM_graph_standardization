@@ -391,8 +391,33 @@ GGUFMetadata read_metadata(const std::string &filename, const std::string &key)
                 arr.resize(md.array.size);
                 for (auto &str : arr)
                 {
-                    std::getline(in, str);
+                    // Leer longitud primero
+                    uint32_t len;
+                    in.read(reinterpret_cast<char*>(&len), sizeof(uint32_t));
+                    
+                    // Leer string codificado
+                    std::vector<char> buffer(len);
+                    in.read(buffer.data(), len);
+                    
+                    // Decodificar
+                    std::string encoded_str(buffer.begin(), buffer.end());
+                    str.clear();
+                    for (size_t i = 0; i < encoded_str.size(); ++i) {
+                        if (encoded_str[i] == '\\' && i+1 < encoded_str.size()) {
+                            if (encoded_str[i+1] == 'n') { str += '\n'; i++; }
+                            else if (encoded_str[i+1] == '0') { str += '\0'; i++; }
+                            else if (encoded_str[i+1] == '\\') { str += '\\'; i++; }
+                            else { str += encoded_str[i]; }
+                        } else {
+                            str += encoded_str[i];
+                        }
+                    }
                 }
+                if (in.get() != '\n') {
+                    std::cerr << "Invalid string array format\n";
+                    return GGUFMetadata();
+                }
+                break;
             }
             else
             {

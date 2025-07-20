@@ -99,18 +99,57 @@ int main(int argc, char** argv) {
         //"llama.context_length",
         "tokenizer.ggml.tokens"};
 
-        for (const auto &meta : required_metadata)
-        {
-            GGUFMetadata md = read_metadata(graph_path.string(), meta);
-            if (md.type == GGUF_TYPE_COUNT)
-            { // Not found
-                std::cerr << "Error: Missing required metadata '" << meta << "'\n";
-                return false;
+        for (const auto &meta : required_metadata) {
+        GGUFMetadata md = read_metadata(graph_path.string(), meta);
+        if (md.type == GGUF_TYPE_COUNT) {
+            std::cerr << "Error: Missing required metadata '" << meta << "'\n";
+            return false;
+        }
+        else {
+            std::cout << "OK: Metadata '" << meta << "' found.\n";
+            std::cout << "DATA: \n";
+            
+            // Manejar diferentes tipos de datos
+            if (md.type == GGUF_TYPE_ARRAY && md.array.type == GGUF_TYPE_STRING) {
+                // Caso especial para arrays de strings (tokens)
+                try {
+                    const auto& tokens = std::get<std::vector<std::string>>(md.array.data);
+                    std::cout << "Total tokens: " << tokens.size() << "\n";
+                    
+                    // Imprimir los primeros 10 tokens como ejemplo
+                    size_t print_count = std::min(tokens.size(), static_cast<size_t>(10));
+                    for (size_t i = 0; i < print_count; ++i) {
+                        std::cout << "Token " << i << ": ";
+                        
+                        // Imprimir caracteres especiales de forma legible
+                        for (char c : tokens[i]) {
+                            if (c == '\0') std::cout << "<0x00>";
+                            else if (c == '\n') std::cout << "\\n";
+                            else if (c == '\t') std::cout << "\\t";
+                            else if (c == '\r') std::cout << "\\r";
+                            else if (isprint(static_cast<unsigned char>(c))) std::cout << c;
+                            else std::cout << "<0x" << std::hex << static_cast<int>(c) << ">";
+                        }
+                        std::cout << "\n";
+                    }
+                    
+                    // Opcional: imprimir estadísticas
+                    if (tokens.size() > 10) {
+                        std::cout << "... (showing first 10 of " << tokens.size() << " tokens)\n";
+                    }
+                } catch (const std::bad_variant_access&) {
+                    std::cerr << "Error: Invalid token data format\n";
+                }
+            }
+            else if (md.type == GGUF_TYPE_STRING) {
+                std::cout << md.str << "\n";
             }
             else {
-                std::cout << "OK: Metadata '" << meta << "' found.\n";
+                // Manejar otros tipos de datos si es necesario
+                std::cout << "[Binary data of type " << md.type << "]\n";
             }
         }
+    }
 
         // Ejecutar modelo
         //run_model(params.use_gpu, graph_path);
