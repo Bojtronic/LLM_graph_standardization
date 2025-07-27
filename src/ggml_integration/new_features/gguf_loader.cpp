@@ -477,12 +477,12 @@ GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf,
         if (!tensor.dims.empty())
         {
             // Write all dimensions except the last one
-            for (size_t j = 0; j < tensor.dims.size() - 1; ++j)
-            {
-                out << tensor.dims[j] << ',';
+            for (size_t j = 0; j < tensor.dims.size(); ++j) {
+                if (j != 0) out << ' ';  // Usar espacio como separador
+                out << tensor.dims[j];
             }
             // Write the last dimension without a comma
-            out << tensor.dims.back();
+            //out << tensor.dims.back();
         }
         out.put('\n');
 

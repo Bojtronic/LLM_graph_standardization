@@ -579,7 +579,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
     ggml_tensor *tokens_tensor = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, input_tokens.size());
     if (!tokens_tensor)
     {
-        std::cerr << "Error al crear tensor de tokens" << std::endl;
+        std::cerr << "Error creating token tensor" << std::endl;
         return false;
     }
     memcpy(tokens_tensor->data, input_tokens.data(), input_tokens.size() * sizeof(int));
@@ -588,7 +588,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
     GGUFTensor token_embd_tensor = read_tensor(model_filename, "token_embd.weight");
     if (token_embd_tensor.name.empty())
     {
-        std::cerr << "Error: No se pudo cargar token embeddings" << std::endl;
+        std::cerr << "Error: Failed to load token embeddings" << std::endl;
         return false;
     }
 
@@ -596,7 +596,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
     ggml_tensor *token_embd = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, token_embd_tensor.dims[0], token_embd_tensor.dims[1]);
     if (!token_embd)
     {
-        std::cerr << "Error: No se pudo asignar memoria para embeddings ("
+        std::cerr << "Error: Could not allocate memory for embeddings ("
                   << token_embd_tensor.dims[0] << "x" << token_embd_tensor.dims[1]
                   << ")" << std::endl;
         return false;
@@ -608,7 +608,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
     // 3. Aplicar embeddings
     if (*std::max_element(input_tokens.begin(), input_tokens.end()) >= token_embd->ne[1])
     {
-        std::cerr << "Índice de token excede el tamaño del vocabulario" << std::endl;
+        std::cerr << "Token index exceeds vocabulary size" << std::endl;
         return false;
     }
 
@@ -634,7 +634,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
 
     if (!current)
     {
-        std::cerr << "Error al aplicar codificación posicional" << std::endl;
+        std::cerr << "Error applying positional encoding" << std::endl;
         return false;
     }
 

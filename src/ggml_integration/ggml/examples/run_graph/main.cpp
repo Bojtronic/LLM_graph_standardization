@@ -63,94 +63,34 @@ int main(int argc, char** argv) {
         }
         std::cout << "The computational graph image was generated and saved to " << dot_path.string() << std::endl;
 
-        /*
-        GGUFMetadata md = read_metadata("llama-2-7b.Q2_K.graph", "llama.rope.dimension_count");
 
+        /*
+        std::cout << graph_path.c_str() << std::endl;
+        std::cout << graph_path << std::endl;
+        
+
+        GGUFMetadata md = read_metadata(graph_path, "tokenizer.ggml.tokens");
         if (md.type == GGUF_TYPE_COUNT) {
-            std::cerr << "Metadata key not found in the graph file." << std::endl;
-        } else {
-            std::cout << "Key: " << md.key << std::endl;
-            std::cout << "Value: " << md.value.u32 << std::endl;
+            std::cerr << "No se encontró la metadata de tokens en el modelo GGUF." << std::endl;
         }
+        std::cout << "Token metadata found: " << md.key << " of type " << gguf_type_name(md.type) << std::endl;
+        std::cout << "Number of tokens: " << std::get<std::vector<std::string>>(md.array.data).size() << std::endl;
         */
 
-        /*
-        GGUFTensor tensor = read_tensor(graph_path.string(), "blk.5.attn_norm.weight");
+        GGUFTensor tensor = read_tensor(graph_path, "token_embd.weight");
+        //GGUFTensor tensor = read_tensor(graph_path, "blk.0.attn_norm.weight");
+        
         if (tensor.name.empty()) {
-            std::cerr << "Tensor not found in the graph file." << std::endl;
-        } else {
-            std::cout << "Tensor Name: " << tensor.name << std::endl;
-            std::cout << "Tensor Type: " << ggml_type_name(tensor.type) << std::endl;
-            std::cout << "Tensor Size: " << tensor.size << " bytes" << std::endl;
-            std::cout << "Tensor Dimensions: ";
-            for (const auto& dim : tensor.dims) {
-                std::cout << dim << " ";        
-            
-            }
+            std::cerr << "Error: Failed to read tensor from GGUF file" << std::endl;
         }
-        */
+        std::cout << "Tensor name: " << tensor.name << std::endl;
+        std::cout << "Tensor n dims: " << tensor.n_dims << std::endl;
+        std::cout << "dim 0: " << tensor.dims[0] << " dim 1: " << tensor.dims[1] << std::endl;
 
 
-        const std::vector<std::string> required_metadata = {
-        //"llama.embedding_length",
-        //"llama.attention.head_count",
-        //"llama.block_count",
-        //"llama.attention.layer_norm_rms_epsilon",
-        //"llama.context_length",
-        "tokenizer.ggml.tokens"};
 
-        for (const auto &meta : required_metadata) {
-        GGUFMetadata md = read_metadata(graph_path.string(), meta);
-        if (md.type == GGUF_TYPE_COUNT) {
-            std::cerr << "Error: Missing required metadata '" << meta << "'\n";
-            return false;
-        }
-        else {
-            std::cout << "OK: Metadata '" << meta << "' found.\n";
-            std::cout << "DATA: \n";
-            
-            // Manejar diferentes tipos de datos
-            if (md.type == GGUF_TYPE_ARRAY && md.array.type == GGUF_TYPE_STRING) {
-                // Caso especial para arrays de strings (tokens)
-                try {
-                    const auto& tokens = std::get<std::vector<std::string>>(md.array.data);
-                    std::cout << "Total tokens: " << tokens.size() << "\n";
-                    
-                    // Imprimir los primeros 10 tokens como ejemplo
-                    size_t print_count = std::min(tokens.size(), static_cast<size_t>(10));
-                    for (size_t i = 0; i < print_count; ++i) {
-                        std::cout << "Token " << i << ": ";
-                        
-                        // Imprimir caracteres especiales de forma legible
-                        for (char c : tokens[i]) {
-                            if (c == '\0') std::cout << "<0x00>";
-                            else if (c == '\n') std::cout << "\\n";
-                            else if (c == '\t') std::cout << "\\t";
-                            else if (c == '\r') std::cout << "\\r";
-                            else if (isprint(static_cast<unsigned char>(c))) std::cout << c;
-                            else std::cout << "<0x" << std::hex << static_cast<int>(c) << ">";
-                        }
-                        std::cout << "\n";
-                    }
-                    
-                    // Opcional: imprimir estadísticas
-                    if (tokens.size() > 10) {
-                        std::cout << "... (showing first 10 of " << tokens.size() << " tokens)\n";
-                    }
-                } catch (const std::bad_variant_access&) {
-                    std::cerr << "Error: Invalid token data format\n";
-                }
-            }
-            else if (md.type == GGUF_TYPE_STRING) {
-                std::cout << md.str << "\n";
-            }
-            else {
-                // Manejar otros tipos de datos si es necesario
-                std::cout << "[Binary data of type " << md.type << "]\n";
-            }
-        }
-    }
-
+        
+     
         // Ejecutar modelo
         //run_model(params.use_gpu, graph_path);
 

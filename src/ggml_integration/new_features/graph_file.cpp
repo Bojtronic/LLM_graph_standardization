@@ -622,7 +622,7 @@ GGUFTensor read_tensor(const std::string &filename, const std::string &name)
                 tensor.name = line.substr(6);
             }
             else if (line.find("TYPE: ") == 0)
-            { // Modified to match format ///////////////////////////////////////////
+            {
                 tensor.type = static_cast<enum ggml_type>(std::stoi(line.substr(6)));
             }
             else if (line.find("SIZE: ") == 0)
@@ -635,10 +635,13 @@ GGUFTensor read_tensor(const std::string &filename, const std::string &name)
             }
             else if (line.find("DIMS: ") == 0)
             {
-                std::istringstream dims_stream(line.substr(6));
+
+                std::string dims_str = line.substr(6);
+                std::istringstream dims_stream(dims_str);
+                tensor.dims.clear();
+                
                 int64_t dim;
-                while (dims_stream >> dim)
-                {
+                while (dims_stream >> dim) {
                     tensor.dims.push_back(dim);
                 }
             }
