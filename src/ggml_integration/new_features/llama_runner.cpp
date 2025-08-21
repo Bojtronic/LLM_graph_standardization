@@ -10,6 +10,7 @@
 #include <random>
 #include <numeric>
 #include <sstream>
+#include "quantization_management.h"
 
 // Variables globales para el estado del chat
 // static std::vector<int> g_context_tokens;
@@ -457,6 +458,8 @@ int sample_next_token(const float* logits, int n_vocab,
 bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::string &model_filename)
 {
 
+    int total_elements = 0;
+
     // Validación inicial de metadatos requeridos
     const std::vector<std::string> required_metadata = {
         "llama.embedding_length",
@@ -584,11 +587,26 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
     }
     memcpy(tokens_tensor->data, input_tokens.data(), input_tokens.size() * sizeof(int));
 
+    
+
+
     // 2. Obtener embeddings de tokens
     GGUFTensor token_embd_tensor = read_tensor(model_filename, "token_embd.weight");
     if (token_embd_tensor.name.empty())
     {
         std::cerr << "Error: Failed to load token embeddings" << std::endl;
+        return false;
+    }
+
+    total_elements = 0;
+    if(token_embd_tensor.n_dims == 1){
+        total_elements = token_embd_tensor.dims[0];
+    }
+    else if(token_embd_tensor.n_dims == 2){
+        total_elements = token_embd_tensor.dims[0] * token_embd_tensor.dims[1];
+    }
+    else {
+        std::cerr << "Error: Unsupported number of dimensions: " << token_embd_tensor.n_dims << std::endl;
         return false;
     }
 
@@ -602,15 +620,46 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         return false;
     }
 
-    memcpy(token_embd->data, std::get<std::vector<float>>(token_embd_tensor.data).data(),
-           token_embd_tensor.dims[0] * token_embd_tensor.dims[1] * sizeof(float));
+    // Obtener el puntero crudo a los datos
+    const void* raw_data = std::visit([](auto&& arg) -> const void* {
+        return arg.empty() ? nullptr : arg.data();
+    }, token_embd_tensor.data);
+    
+    if (!raw_data) {
+        std::cerr << "Error: No data in quantized tensor" << std::endl;
+        return false;
+    }
+    
+    // Dequantizar usando la función general
+    try {
+        dequantize_k_quant(token_embd_tensor.type,
+                          raw_data,
+                          static_cast<float*>(token_embd->data),
+                          total_elements); 
+    } catch (const std::exception& e) {
+        std::cerr << "Error dequantizing: " << e.what() << std::endl;
+        return false;
+    }
+    
+    //memcpy(token_embd->data, token_embd_tensor.data,
+    //       token_embd_tensor.dims[0] * token_embd_tensor.dims[1] * sizeof(float)); //en esta parte size es el tamaño de todos los datos en bytes, pero en cuanto a las dimensiones una de ellas podria ser cero 
 
+    //memcpy(token_embd->data, std::get<std::vector<float>>(token_embd_tensor.data).data(),
+    //       token_embd_tensor.dims[0] * token_embd_tensor.dims[1] * sizeof(float));
+
+    /////////////////////////////////////////////////////////////////////////////////////////
+    
     // 3. Aplicar embeddings
     if (*std::max_element(input_tokens.begin(), input_tokens.end()) >= token_embd->ne[1])
     {
         std::cerr << "Token index exceeds vocabulary size" << std::endl;
         return false;
     }
+
+    // convertir tokens_tensor a I32
+
+    
+    ////////////////////////////////////////////////////////////////////////////////////////
 
     // a=token_embd   b=tokens_tensor
     // a->ne[2] == b->ne[1]:

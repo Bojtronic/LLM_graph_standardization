@@ -236,3 +236,31 @@ void dequantize_k_quant(ggml_type type, const void* src, float* dst, int k) {
                                    std::string(ggml_type_name(type)));
     }
 }
+
+/**
+ * @brief Converts a float array to int32 array with optional scaling
+ * @param src Source float array
+ * @param dst Destination int32 array
+ * @param size Number of elements to convert
+ * @param scale Scaling factor (optional, default = 1.0)
+ * @param offset Offset value (optional, default = 0.0)
+ */
+void convert_f32_to_i32(const float* src, int32_t* dst, int size, float scale = 1.0f, float offset = 0.0f) {
+    for (int i = 0; i < size; ++i) {
+        dst[i] = static_cast<int32_t>(src[i] * scale + offset);
+    }
+}
+
+bool ggml_is_quantized(ggml_type type) {
+    return type == GGML_TYPE_Q2_K || type == GGML_TYPE_Q3_K || 
+           type == GGML_TYPE_Q4_K || type == GGML_TYPE_Q5_K || 
+           type == GGML_TYPE_Q6_K || type == GGML_TYPE_Q8_K;
+}
+
+void dequantized_warning(const std::string& name, ggml_type type) {
+    if (ggml_is_quantized(type)) {
+        std::cout << "Tensor '" << name << "' type: " << ggml_type_name(type);
+        std::cout << " (QUANTIZED - needs dequantization)";
+    }
+    std::cout << std::endl;
+}
