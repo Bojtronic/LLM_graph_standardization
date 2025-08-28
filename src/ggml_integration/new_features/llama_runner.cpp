@@ -197,263 +197,85 @@ std::string decode_basic(const std::vector<int> &tokens)
     return output;
 }
 
-/*
-bool run_interactive_chat(ggml_backend_t backend, const std::string& model_filename) {
+/**
+ * Función para cargar y desquantizar un tensor a F32
+ * Soporta solo tensores de 1D y 2D como se requiere
+ * 
+ * @param ctx Contexto GGML
+ * @param filename Ruta del archivo del modelo
+ * @param tensor_name Nombre del tensor a cargar
+ * @return ggml_tensor* Tensor desquantizado en F32, o nullptr en caso de error
+ */
+ggml_tensor* load_and_dequantize_to_f32(ggml_context* ctx, 
+                                       const std::string& filename, 
+                                       const std::string& tensor_name) {
+    
+    // 1. Leer tensor GGUF
+    GGUFTensor gguf_tensor = read_tensor(filename, tensor_name);
+    if (gguf_tensor.name.empty()) {
+        std::cerr << "Error: Failed to load tensor '" << tensor_name << "'" << std::endl;
+        return nullptr;
+    }
+
+    // 2. Validar dimensiones (solo 1D o 2D)
+    size_t total_elements = 0;
+    if (gguf_tensor.n_dims == 1) {
+        total_elements = gguf_tensor.dims[0];
+    }
+    else if (gguf_tensor.n_dims == 2) {
+        total_elements = gguf_tensor.dims[0] * gguf_tensor.dims[1];
+    }
+    else {
+        std::cerr << "Error: Unsupported number of dimensions in tensor '" << tensor_name 
+                  << "': " << gguf_tensor.n_dims << " (only 1D and 2D supported)" << std::endl;
+        return nullptr;
+    }
+
+    // 3. Verificar que las dimensiones sean válidas
+    for (int i = 0; i < gguf_tensor.n_dims; i++) {
+        if (gguf_tensor.dims[i] <= 0) {
+            std::cerr << "Error: Tensor '" << tensor_name << "' has invalid dimension " 
+                      << i << ": " << gguf_tensor.dims[i] << std::endl;
+            return nullptr;
+        }
+    }
+
+    // 4. Crear tensor destino F32 con las mismas dimensiones
+    ggml_tensor* tensor = nullptr;
+    if (gguf_tensor.n_dims == 1) {
+        tensor = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, gguf_tensor.dims[0]);
+    } else {
+        tensor = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, gguf_tensor.dims[0], gguf_tensor.dims[1]);
+    }
+
+    if (!tensor) {
+        std::cerr << "Error: Could not allocate memory for tensor '" << tensor_name << "'" << std::endl;
+        return nullptr;
+    }
+
+    // 5. Obtener datos crudos
+    const void* raw_data = std::visit([](auto&& arg) -> const void* {
+        return arg.empty() ? nullptr : arg.data();
+    }, gguf_tensor.data);
+    
+    if (!raw_data) {
+        std::cerr << "Error: No data in tensor '" << tensor_name << "'" << std::endl;
+        return nullptr;
+    }
+    
+    // 6. Desquantizar según el tipo
     try {
-        float temperature = 1.0f;
-        int top_k = 0;
-        float top_p = 1.0f;
-
-        // Validación inicial de metadatos requeridos
-        const std::vector<std::string> required_metadata = {
-            "llama.embedding_length",
-            "llama.attention.head_count",
-            "llama.block_count",
-            "llama.attention.layer_norm_rms_epsilon",
-            "llama.context_length"
-        };
-
-
-        for (const auto& meta : required_metadata) {
-            GGUFMetadata md = read_metadata(model_filename, meta);
-            if (md.type == GGUF_TYPE_COUNT) { // Not found
-                std::cerr << "Error: Missing required metadata '" << meta << "'\n";
-                return false;
-            }
-        }
-
-        // Extracción de parámetros con verificación
-        int n_embd = read_metadata(model_filename, "llama.embedding_length").value.i32;
-        int n_head = read_metadata(model_filename, "llama.attention.head_count").value.i32;
-        int n_layers = read_metadata(model_filename, "llama.block_count").value.i32;
-        float norm_eps = read_metadata(model_filename, "llama.attention.layer_norm_rms_epsilon").value.f32;
-        int n_ctx = read_metadata(model_filename, "llama.context_length").value.i32;
-
-
-        // Configuración del vocabulario
-        GGUFMetadata tokens_meta = read_metadata(model_filename, "tokenizer.ggml.tokens");
-        if (tokens_meta.type != GGUF_TYPE_ARRAY ||
-            !std::holds_alternative<std::vector<std::string>>(tokens_meta.array.data)) {
-            std::cerr << "Error: Invalid or missing tokenizer vocabulary\n";
-            return false;
-        }
-        int vocab_size = std::get<std::vector<std::string>>(tokens_meta.array.data).size();
-
-        // Configurar tokens especiales
-        GGUFMetadata eos_meta = read_metadata(model_filename, "tokenizer.ggml.eos_token_id");
-        GGUFMetadata bos_meta = read_metadata(model_filename, "tokenizer.ggml.bos_token_id");
-
-        g_eos_token = eos_meta.type != GGUF_TYPE_COUNT ? eos_meta.value.i32 : 2;
-        int bos_token = bos_meta.type != GGUF_TYPE_COUNT ? bos_meta.value.i32 : 1;
-
-
-        // Crear contexto GGML una sola vez
-        ggml_context* ctx = ggml_init({.mem_size = 16 * 1024 * 1024});
-        if (!ctx) {
-            std::cerr << "Error: Failed to initialize GGML context\n";
-            ggml_free(ctx);
-            return false;
-        }
-
-        // Bucle principal del chat (se eliminó el bucle)
-        char input_buffer[1024];
-
-        std::cout << "> ";
-        std::cin.getline(input_buffer, sizeof(input_buffer));
-        std::string user_input(input_buffer);
-
-        if (!std::cin) {
-            return false;  // Fin de entrada o error
-        }
-
-        if (user_input == "salir" || user_input == "exit") {
-            return false;
-        }
-
-
-        // Tokenización con manejo de errores
-        std::vector<int> input_tokens;
-        try {
-            //input_tokens = tokenize_input(user_input, graph_data);
-            input_tokens = tokenize_input(user_input, model_filename);
-        } catch (const std::exception& e) {
-            std::cerr << "Error tokenizing input: " << e.what() << "\n";
-            return false;
-        }
-
-        if (bos_token != -1) {
-            input_tokens.insert(input_tokens.begin(), bos_token);
-        }
-
-        g_context_tokens.insert(g_context_tokens.end(), input_tokens.begin(), input_tokens.end());
-
-        if (g_context_tokens.size() > n_ctx) {
-            int excess = g_context_tokens.size() - n_ctx;
-            g_context_tokens.erase(g_context_tokens.begin(), g_context_tokens.begin() + excess);
-        }
-
-        // Generación de respuesta
-        std::vector<int> response_tokens;
-        bool generating = true;
-
-        std::cout << "Asistente: ";
-
-
-        ///////////////////////////////////////////////////////////////////
-
-
-        while (generating && (response_tokens.size() < n_ctx)) {
-            // Si el contexto excede n_ctx, truncamos manteniendo los más recientes
-            if (g_context_tokens.size() >= n_ctx) {
-                g_context_tokens.erase(g_context_tokens.begin(), g_context_tokens.end() - n_ctx + 1);
-            }
-
-                /
-                if (response_tokens.size() % 32 == 0) {
-                    ggml_free(ctx);
-                    ctx = ggml_init({.mem_size = 16 * 1024 * 1024}); // Recrear el contexto
-                }
-
-
-
-            ggml_tensor* logits_tensor = run_llama_model(ctx, backend, model_filename,
-                    n_embd, n_head, n_layers, norm_eps, n_ctx, vocab_size, g_context_tokens);
-
-
-
-            //ggml_tensor* logits_tensor = nullptr;
-
-            if (!logits_tensor) {
-                std::cerr << "\nError: Model execution failed\n";
-                ggml_free(ctx);
-                return false;
-            }
-
-            float* logits = ggml_get_data_f32(logits_tensor);
-            int next_token = sample_next_token(logits, vocab_size, temperature, top_p, top_k);
-
-            if (next_token == g_eos_token) {
-                generating = false;
-            } else {
-                response_tokens.push_back(next_token);
-                g_context_tokens.push_back(next_token);
-
-                try {
-                    //std::cout << decode_output({next_token}, graph_data) << std::flush;
-                    std::cout << decode_output({next_token}, model_filename) << std::flush;
-                } catch (const std::exception& e) {
-                    std::cerr << "\nError decoding output: " << e.what() << "\n";
-                    generating = false;
-                }
-            }
-        }
-        std::cout << "\n\n";
-
-        ggml_free(ctx);
-        g_context_tokens.clear();
-        return true;
+        dequantize_k_quant(gguf_tensor.type,
+                          raw_data,
+                          static_cast<float*>(tensor->data),
+                          total_elements);
     } catch (const std::exception& e) {
-        std::cerr << "Fatal error in chat: " << e.what() << "\n";
-        return false;
+        std::cerr << "Error dequantizing tensor '" << tensor_name << "': " << e.what() << std::endl;
+        return nullptr;
     }
+
+    return tensor;
 }
-*/
-
-/*
-int sample_next_token(const float* logits, int n_vocab,
-                     float temperature, float top_p, int top_k) {
-    std::vector<float> probs(logits, logits + n_vocab);
-
-    // 1. Aplicar temperatura
-    if (temperature != 1.0f) {
-        for (float& prob : probs) {
-            prob /= temperature;
-        }
-    }
-
-    // 2. Softmax para convertir logits a probabilidades
-    float max_logit = *std::max_element(probs.begin(), probs.end());
-    float sum = 0.0f;
-    for (float& prob : probs) {
-        prob = expf(prob - max_logit);
-        sum += prob;
-    }
-    for (float& prob : probs) {
-        prob /= sum;
-    }
-
-    // 3. Filtrado top-k
-    if (top_k > 0 && top_k < n_vocab) {
-        std::vector<std::pair<float, int>> prob_index;
-        for (int i = 0; i < n_vocab; ++i) {
-            prob_index.emplace_back(probs[i], i);
-        }
-
-        // Ordenar descendente por probabilidad
-        std::partial_sort(
-            prob_index.begin(),
-            prob_index.begin() + top_k,
-            prob_index.end(),
-            [](const std::pair<float, int>& a, const std::pair<float, int>& b) {
-                return a.first > b.first;
-            });
-
-        // Cero las probabilidades fuera del top-k
-        for (int i = top_k; i < n_vocab; ++i) {
-            probs[prob_index[i].second] = 0.0f;
-        }
-
-        // Renormalizar
-        float sum = std::accumulate(probs.begin(), probs.end(), 0.0f);
-        for (float& prob : probs) {
-            prob /= sum;
-        }
-    }
-
-    // 4. Muestreo top-p (nucleus sampling)
-    if (top_p > 0.0f && top_p < 1.0f) {
-        std::vector<std::pair<float, int>> prob_index;
-        for (int i = 0; i < n_vocab; ++i) {
-            prob_index.emplace_back(probs[i], i);
-        }
-
-        // Ordenar descendente por probabilidad
-        std::sort(
-            prob_index.begin(),
-            prob_index.end(),
-            [](const std::pair<float, int>& a, const std::pair<float, int>& b) {
-                return a.first > b.first;
-            });
-
-        float cumulative_prob = 0.0f;
-        int last_idx = n_vocab - 1;
-        for (int i = 0; i < n_vocab; ++i) {
-            cumulative_prob += prob_index[i].first;
-            if (cumulative_prob >= top_p) {
-                last_idx = i;
-                break;
-            }
-        }
-
-        // Cero las probabilidades fuera del top-p
-        for (int i = last_idx + 1; i < n_vocab; ++i) {
-            probs[prob_index[i].second] = 0.0f;
-        }
-
-        // Renormalizar
-        float sum = std::accumulate(probs.begin(), probs.end(), 0.0f);
-        for (float& prob : probs) {
-            prob /= sum;
-        }
-    }
-
-    // 5. Muestreo de la distribución
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::discrete_distribution<> dist(probs.begin(), probs.end());
-    return dist(gen);
-}
-*/
 
 bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::string &model_filename)
 {
@@ -591,63 +413,11 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
 
 
     // 2. Obtener embeddings de tokens
-    GGUFTensor token_embd_tensor = read_tensor(model_filename, "token_embd.weight");
-    if (token_embd_tensor.name.empty())
-    {
+    ggml_tensor *token_embd = load_and_dequantize_to_f32(ctx, model_filename, "token_embd.weight");
+    if (!token_embd) {
         std::cerr << "Error: Failed to load token embeddings" << std::endl;
         return false;
     }
-
-    total_elements = 0;
-    if(token_embd_tensor.n_dims == 1){
-        total_elements = token_embd_tensor.dims[0];
-    }
-    else if(token_embd_tensor.n_dims == 2){
-        total_elements = token_embd_tensor.dims[0] * token_embd_tensor.dims[1];
-    }
-    else {
-        std::cerr << "Error: Unsupported number of dimensions: " << token_embd_tensor.n_dims << std::endl;
-        return false;
-    }
-
-    // Convertir GGUFTensor a ggml_tensor
-    ggml_tensor *token_embd = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, token_embd_tensor.dims[0], token_embd_tensor.dims[1]);
-    if (!token_embd)
-    {
-        std::cerr << "Error: Could not allocate memory for embeddings ("
-                  << token_embd_tensor.dims[0] << "x" << token_embd_tensor.dims[1]
-                  << ")" << std::endl;
-        return false;
-    }
-
-    // Obtener el puntero crudo a los datos
-    const void* raw_data = std::visit([](auto&& arg) -> const void* {
-        return arg.empty() ? nullptr : arg.data();
-    }, token_embd_tensor.data);
-    
-    if (!raw_data) {
-        std::cerr << "Error: No data in quantized tensor" << std::endl;
-        return false;
-    }
-    
-    // Dequantizar usando la función general
-    try {
-        dequantize_k_quant(token_embd_tensor.type,
-                          raw_data,
-                          static_cast<float*>(token_embd->data),
-                          total_elements); 
-    } catch (const std::exception& e) {
-        std::cerr << "Error dequantizing: " << e.what() << std::endl;
-        return false;
-    }
-    
-    //memcpy(token_embd->data, token_embd_tensor.data,
-    //       token_embd_tensor.dims[0] * token_embd_tensor.dims[1] * sizeof(float)); //en esta parte size es el tamaño de todos los datos en bytes, pero en cuanto a las dimensiones una de ellas podria ser cero 
-
-    //memcpy(token_embd->data, std::get<std::vector<float>>(token_embd_tensor.data).data(),
-    //       token_embd_tensor.dims[0] * token_embd_tensor.dims[1] * sizeof(float));
-
-    /////////////////////////////////////////////////////////////////////////////////////////
     
     // 3. Aplicar embeddings
     if (*std::max_element(input_tokens.begin(), input_tokens.end()) >= token_embd->ne[1])
@@ -655,11 +425,6 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         std::cerr << "Token index exceeds vocabulary size" << std::endl;
         return false;
     }
-
-    // convertir tokens_tensor a I32
-
-    
-    ////////////////////////////////////////////////////////////////////////////////////////
 
     // a=token_embd   b=tokens_tensor
     // a->ne[2] == b->ne[1]:
@@ -692,27 +457,31 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
     {
         std::string layer_prefix = "blk." + std::to_string(i) + ".";
 
-        // Atención
-        GGUFTensor attn_norm_weight_tensor = read_tensor(model_filename, layer_prefix + "attn_norm.weight");
-        ggml_tensor *attn_norm_weight = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, attn_norm_weight_tensor.dims[0]);
-        memcpy(attn_norm_weight->data, std::get<std::vector<float>>(attn_norm_weight_tensor.data).data(),
-               attn_norm_weight_tensor.dims[0] * sizeof(float));
+        // Atención - Norm Weight
+        ggml_tensor *attn_norm_weight = load_and_dequantize_to_f32(ctx, model_filename, layer_prefix + "attn_norm.weight");
+        if (!attn_norm_weight) {
+            std::cerr << "Error loading attn_norm.weight for layer " << i << std::endl;
+            return false;
+        }
 
         ggml_tensor *attn_norm_out = layer_norm(ctx, current, attn_norm_weight, nullptr, true, norm_eps);
 
-        // Proyecciones Q, K, V
-        auto load_proj = [&](const std::string &name) -> ggml_tensor *
-        {
-            GGUFTensor proj_tensor = read_tensor(model_filename, layer_prefix + name);
-            ggml_tensor *proj = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, proj_tensor.dims[0], proj_tensor.dims[1]);
-            memcpy(proj->data, std::get<std::vector<float>>(proj_tensor.data).data(),
-                   proj_tensor.dims[0] * proj_tensor.dims[1] * sizeof(float));
-            return proj;
+        // Proyecciones Q, K, V - usando función lambda simplificada
+        auto load_proj = [&](const std::string &name) -> ggml_tensor* {
+            ggml_tensor* tensor = load_and_dequantize_to_f32(ctx, model_filename, layer_prefix + name);
+            if (!tensor) {
+                std::cerr << "Error loading " << name << " for layer " << i << std::endl;
+            }
+            return tensor;
         };
 
         ggml_tensor *q_proj = load_proj("attn_q.weight");
         ggml_tensor *k_proj = load_proj("attn_k.weight");
         ggml_tensor *v_proj = load_proj("attn_v.weight");
+        
+        if (!q_proj || !k_proj || !v_proj) {
+            return false;
+        }
 
         ggml_tensor *q = ggml_mul_mat(ctx, q_proj, attn_norm_out);
         ggml_tensor *k = ggml_mul_mat(ctx, k_proj, attn_norm_out);
@@ -742,10 +511,11 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         attn_output = ggml_reshape_2d(ctx, attn_output, n_embd, input_tokens.size());
 
         // Proyección de salida
-        GGUFTensor attn_proj_tensor = read_tensor(model_filename, layer_prefix + "attn_proj.weight");
-        ggml_tensor *attn_proj = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, attn_proj_tensor.dims[0], attn_proj_tensor.dims[1]);
-        memcpy(attn_proj->data, std::get<std::vector<float>>(attn_proj_tensor.data).data(),
-               attn_proj_tensor.dims[0] * attn_proj_tensor.dims[1] * sizeof(float));
+        ggml_tensor *attn_proj = load_and_dequantize_to_f32(ctx, model_filename, layer_prefix + "attn_proj.weight");
+        if (!attn_proj) {
+            std::cerr << "Error loading attn_proj.weight for layer " << i << std::endl;
+            return false;
+        }
 
         attn_output = ggml_mul_mat(ctx, attn_proj, attn_output);
 
@@ -753,10 +523,11 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         current = ggml_add(ctx, current, attn_output);
 
         // Feed Forward Network
-        GGUFTensor ffn_norm_weight_tensor = read_tensor(model_filename, layer_prefix + "ffn_norm.weight");
-        ggml_tensor *ffn_norm_weight = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, ffn_norm_weight_tensor.dims[0]);
-        memcpy(ffn_norm_weight->data, std::get<std::vector<float>>(ffn_norm_weight_tensor.data).data(),
-               ffn_norm_weight_tensor.dims[0] * sizeof(float));
+        ggml_tensor *ffn_norm_weight = load_and_dequantize_to_f32(ctx, model_filename, layer_prefix + "ffn_norm.weight");
+        if (!ffn_norm_weight) {
+            std::cerr << "Error loading ffn_norm.weight for layer " << i << std::endl;
+            return false;
+        }
 
         ggml_tensor *ffn_norm_out = layer_norm(ctx, current, ffn_norm_weight, nullptr, true, norm_eps);
 
@@ -764,6 +535,10 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         ggml_tensor *ffn_gate = load_proj("ffn_gate.weight");
         ggml_tensor *ffn_up = load_proj("ffn_up.weight");
         ggml_tensor *ffn_down = load_proj("ffn_down.weight");
+        
+        if (!ffn_gate || !ffn_up || !ffn_down) {
+            return false;
+        }
 
         ggml_tensor *ffn_out = llama_ffn(ctx, ffn_norm_out, ffn_gate, ffn_up, ffn_down);
 
@@ -772,18 +547,22 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
     }
 
     // 6. Normalización final
-    GGUFTensor output_norm_tensor = read_tensor(model_filename, "output_norm.weight");
-    ggml_tensor *output_norm = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, output_norm_tensor.dims[0]);
-    memcpy(output_norm->data, std::get<std::vector<float>>(output_norm_tensor.data).data(),
-           output_norm_tensor.dims[0] * sizeof(float));
+    ggml_tensor *output_norm = load_and_dequantize_to_f32(ctx, model_filename, "output_norm.weight");
+    if (!output_norm) {
+        std::cerr << "Error loading output_norm.weight" << std::endl;
+        ggml_free(ctx);
+        return false;
+    }
 
     current = layer_norm(ctx, current, output_norm, nullptr, true, norm_eps);
 
     // 7. Capa de salida (LM head)
-    GGUFTensor output_weight_tensor = read_tensor(model_filename, "output.weight");
-    ggml_tensor *output_weight = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, output_weight_tensor.dims[0], output_weight_tensor.dims[1]);
-    memcpy(output_weight->data, std::get<std::vector<float>>(output_weight_tensor.data).data(),
-           output_weight_tensor.dims[0] * output_weight_tensor.dims[1] * sizeof(float));
+    ggml_tensor *output_weight = load_and_dequantize_to_f32(ctx, model_filename, "output.weight");
+    if (!output_weight) {
+        std::cerr << "Error loading output.weight" << std::endl;
+        ggml_free(ctx);
+        return false;
+    }
 
     ggml_tensor *logits = ggml_mul_mat(ctx, output_weight, current);
 
