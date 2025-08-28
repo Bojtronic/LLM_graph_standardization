@@ -69,7 +69,7 @@ void dequantize_q5_k(const void* src, float* dst, int k);
 void dequantize_q6_k(const void* src, float* dst, int k);
 void dequantize_q8_k(const void* src, float* dst, int k);
 void dequantize_k_quant(ggml_type type, const void* src, float* dst, int k);
-void convert_f32_to_i32(const float* src, int32_t* dst, int size, float scale = 1.0f, float offset = 0.0f);
+void convert_f32_to_i32(const float* src, int32_t* dst, int size, float scale, float offset);
 bool ggml_is_quantized(ggml_type type);
 void dequantized_warning(const std::string& name, ggml_type type);
 

@@ -400,17 +400,28 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    // 1. Convertir input_tokens a tensor GGML
+    // 1. Convertir input_tokens a tensor GGML CON VERIFICACIÓN
     ggml_tensor *tokens_tensor = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, input_tokens.size());
     if (!tokens_tensor)
     {
         std::cerr << "Error creating token tensor" << std::endl;
         return false;
     }
-    memcpy(tokens_tensor->data, input_tokens.data(), input_tokens.size() * sizeof(int));
 
-    
+    // VERIFICACIÓN CRÍTICA: Asegurar que el tipo es I32
+    if (tokens_tensor->type != GGML_TYPE_I32) {
+        std::cerr << "CRITICAL ERROR: tokens_tensor type is " 
+                << ggml_type_name(tokens_tensor->type) << ", expected I32" << std::endl;
+        return false;
+    }
 
+    // COPIAR SEGURO: Usar int32_t explícitamente en lugar de int
+    std::vector<int32_t> input_tokens_i32(input_tokens.begin(), input_tokens.end());
+    memcpy(tokens_tensor->data, input_tokens_i32.data(), input_tokens_i32.size() * sizeof(int32_t));
+
+    // VERIFICACIÓN ADICIONAL: Debug output
+    std::cout << "Tokens tensor type: " << ggml_type_name(tokens_tensor->type) << std::endl;
+    std::cout << "Tokens tensor dimensions: " << tokens_tensor->ne[0] << std::endl;
 
     // 2. Obtener embeddings de tokens
     ggml_tensor *token_embd = load_and_dequantize_to_f32(ctx, model_filename, "token_embd.weight");
@@ -418,7 +429,12 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         std::cerr << "Error: Failed to load token embeddings" << std::endl;
         return false;
     }
-    
+
+    // VERIFICACIÓN: Debug de dimensiones
+    std::cout << "Token embeddings dimensions: " << token_embd->ne[0] << " x " << token_embd->ne[1] << std::endl;
+    std::cout << "Max token index: " << *std::max_element(input_tokens.begin(), input_tokens.end()) << std::endl;
+    std::cout << "Vocabulary size: " << token_embd->ne[1] << std::endl;
+
     // 3. Aplicar embeddings
     if (*std::max_element(input_tokens.begin(), input_tokens.end()) >= token_embd->ne[1])
     {
@@ -426,14 +442,20 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         return false;
     }
 
+    // VERIFICACIÓN ANTES DE ggml_get_rows
+    std::cout << "Before ggml_get_rows:" << std::endl;
+    std::cout << "  token_embd type: " << ggml_type_name(token_embd->type) << std::endl;
+    std::cout << "  tokens_tensor type: " << ggml_type_name(tokens_tensor->type) << std::endl;
+    std::cout << "  tokens_tensor elements: " << ggml_nelements(tokens_tensor) << std::endl;
+
     // a=token_embd   b=tokens_tensor
-    // a->ne[2] == b->ne[1]:
-    // La dimensión 2 de a (por ejemplo, número de "bloques" o canales) debe coincidir con la dimensión 1 de b.
-    // b->ne[3] == 1:
-    // La cuarta dimensión de b debe ser 1 (es decir, b es un tensor 3D o inferior).
-    // b->type == GGML_TYPE_I32:
-    // Los índices en b deben ser enteros de 32 bits (I32).
     ggml_tensor *current = ggml_get_rows(ctx, token_embd, tokens_tensor);
+    if (!current) {
+        std::cerr << "Error in ggml_get_rows operation" << std::endl;
+        return false;
+    }
+
+    std::cout << "ggml_get_rows completed successfully" << std::endl;
 
     // 4. Aplicar codificación posicional (RoPE)
 

@@ -75,7 +75,7 @@ int main(int argc, char** argv) {
         }
         std::cout << "Token metadata found: " << md.key << " of type " << gguf_type_name(md.type) << std::endl;
         std::cout << "Number of tokens: " << std::get<std::vector<std::string>>(md.array.data).size() << std::endl;
-        */
+        
 
         GGUFTensor tensor = read_tensor(graph_path, "token_embd.weight");
         //GGUFTensor tensor = read_tensor(graph_path, "blk.0.attn_norm.weight");
@@ -86,13 +86,13 @@ int main(int argc, char** argv) {
         std::cout << "Tensor name: " << tensor.name << std::endl;
         std::cout << "Tensor n dims: " << tensor.n_dims << std::endl;
         std::cout << "dim 0: " << tensor.dims[0] << " dim 1: " << tensor.dims[1] << std::endl;
-
+        */
 
 
         
      
         // Ejecutar modelo
-        //run_model(params.use_gpu, graph_path);
+        run_model(params.use_gpu, graph_path);
 
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << std::endl;
