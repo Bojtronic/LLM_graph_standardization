@@ -408,16 +408,12 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         return false;
     }
 
-    // VERIFICACIÓN CRÍTICA: Asegurar que el tipo es I32
-    if (tokens_tensor->type != GGML_TYPE_I32) {
-        std::cerr << "CRITICAL ERROR: tokens_tensor type is " 
-                << ggml_type_name(tokens_tensor->type) << ", expected I32" << std::endl;
-        return false;
+    // COPIAR USANDO int32_t EXPLÍCITAMENTE
+    int32_t* tensor_data = (int32_t*)tokens_tensor->data;
+    for (size_t i = 0; i < input_tokens.size(); i++) {
+        tensor_data[i] = static_cast<int32_t>(input_tokens[i]);
     }
 
-    // COPIAR SEGURO: Usar int32_t explícitamente en lugar de int
-    std::vector<int32_t> input_tokens_i32(input_tokens.begin(), input_tokens.end());
-    memcpy(tokens_tensor->data, input_tokens_i32.data(), input_tokens_i32.size() * sizeof(int32_t));
 
     // VERIFICACIÓN ADICIONAL: Debug output
     std::cout << "Tokens tensor type: " << ggml_type_name(tokens_tensor->type) << std::endl;
