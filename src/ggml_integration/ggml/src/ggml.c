@@ -3518,6 +3518,7 @@ static struct ggml_tensor * ggml_rope_impl(
 
     GGML_ASSERT(ggml_is_vector(b));
     GGML_ASSERT(b->type == GGML_TYPE_I32);
+
     GGML_ASSERT(a->ne[2] == b->ne[0]);
 
     if (c) {

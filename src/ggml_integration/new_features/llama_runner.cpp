@@ -400,7 +400,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    // 1. Convertir input_tokens a tensor GGML CON VERIFICACIÓN
+    // 1. Convertir input_tokens a tensor GGML
     ggml_tensor *tokens_tensor = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, input_tokens.size());
     if (!tokens_tensor)
     {
@@ -414,10 +414,6 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         tensor_data[i] = static_cast<int32_t>(input_tokens[i]);
     }
 
-
-    // VERIFICACIÓN ADICIONAL: Debug output
-    std::cout << "Tokens tensor type: " << ggml_type_name(tokens_tensor->type) << std::endl;
-    std::cout << "Tokens tensor dimensions: " << tokens_tensor->ne[0] << std::endl;
 
     // 2. Obtener embeddings de tokens
     ggml_tensor *token_embd = load_and_dequantize_to_f32(ctx, model_filename, "token_embd.weight");
@@ -437,12 +433,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         std::cerr << "Token index exceeds vocabulary size" << std::endl;
         return false;
     }
-
-    // VERIFICACIÓN ANTES DE ggml_get_rows
-    std::cout << "Before ggml_get_rows:" << std::endl;
-    std::cout << "  token_embd type: " << ggml_type_name(token_embd->type) << std::endl;
-    std::cout << "  tokens_tensor type: " << ggml_type_name(tokens_tensor->type) << std::endl;
-    std::cout << "  tokens_tensor elements: " << ggml_nelements(tokens_tensor) << std::endl;
+    
 
     // a=token_embd   b=tokens_tensor
     ggml_tensor *current = ggml_get_rows(ctx, token_embd, tokens_tensor);
@@ -451,7 +442,6 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         return false;
     }
 
-    std::cout << "ggml_get_rows completed successfully" << std::endl;
 
     // 4. Aplicar codificación posicional (RoPE)
 

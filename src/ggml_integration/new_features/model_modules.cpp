@@ -244,10 +244,13 @@ ggml_tensor * ggml_pow(ggml_context * ctx, ggml_tensor * a, ggml_tensor * b) {
 ggml_tensor * positional_encoding(ggml_context * ctx, ggml_tensor * input, const char * type, int n_dims, int mode, float base) {
     // Codificación tipo "rope" (Rotary Positional Embedding).
     if (strcmp(type, "rope") == 0) {
-        // Crea un tensor para almacenar las posiciones (índices de secuencia).
-        ggml_tensor * positions = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, input->ne[0]);
+        // Crea un tensor para almacenar las posiciones (índices de secuencia) como I32
+        ggml_tensor * positions = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, input->ne[0]);
+        
+        // COPIAR USANDO int32_t EXPLÍCITAMENTE (igual que en tokens_tensor)
+        int32_t* positions_data = (int32_t*)positions->data;
         for (int i = 0; i < input->ne[0]; i++) {
-            ((float *)positions->data)[i] = (float)i; // Asigna valores secuenciales (0, 1, 2, ...).
+            positions_data[i] = static_cast<int32_t>(i); // Convertir a int32
         }
 
         // Aplica la codificación "rope" al tensor de entrada usando las posiciones.
