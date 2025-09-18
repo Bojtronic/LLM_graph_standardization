@@ -438,6 +438,13 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         return false;
     }
 
+    // Before reshape, check the current tensor
+    printf("DEBUG - Before reshape: current shape [%ld, %ld, %ld, %ld] (nelements=%ld)\n",
+        current->ne[0], current->ne[1], current->ne[2], current->ne[3], ggml_nelements(current));
+    printf("DEBUG - Trying to reshape to: [%ld, %ld, %ld, %ld] (nelements=%ld)\n",
+        current->ne[0], n_head, n_embd / n_head, 1,
+        current->ne[0] * n_head * (n_embd / n_head) * 1);
+
     // Reshape to [seq_len, n_head, head_size, 1]
     current = ggml_reshape_4d(ctx, current, 
                             current->ne[0],  // seq_len
