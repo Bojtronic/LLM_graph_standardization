@@ -422,11 +422,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         return false;
     }
 
-    // VERIFICACIÓN: Debug de dimensiones
-    std::cout << "Token embeddings dimensions: " << token_embd->ne[0] << " x " << token_embd->ne[1] << std::endl;
-    std::cout << "Max token index: " << *std::max_element(input_tokens.begin(), input_tokens.end()) << std::endl;
-    std::cout << "Vocabulary size: " << token_embd->ne[1] << std::endl;
-
+    
     // 3. Aplicar embeddings
     if (*std::max_element(input_tokens.begin(), input_tokens.end()) >= token_embd->ne[1])
     {

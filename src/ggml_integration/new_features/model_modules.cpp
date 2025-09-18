@@ -253,6 +253,12 @@ ggml_tensor * positional_encoding(ggml_context * ctx, ggml_tensor * input, const
             positions_data[i] = static_cast<int32_t>(i); // Convertir a int32
         }
 
+        printf("DEBUG - Input tensor dimensions: [%ld, %ld, %ld, %ld]\n", 
+           input->ne[0], input->ne[1], input->ne[2], input->ne[3]);
+        printf("DEBUG - Positions tensor dimensions: [%ld]\n", positions->ne[0]);
+        printf("DEBUG - Assertion requires: input->ne[2] (%ld) == positions->ne[0] (%ld)\n", 
+            input->ne[2], positions->ne[0]);
+
         // Aplica la codificación "rope" al tensor de entrada usando las posiciones.
         return ggml_rope(ctx, input, positions, n_dims, mode);
          
