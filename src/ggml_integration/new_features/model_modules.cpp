@@ -246,7 +246,7 @@ ggml_tensor * positional_encoding(ggml_context * ctx, ggml_tensor * input, const
     if (strcmp(type, "rope") == 0) {
 
         // Permute to [x, 1, seq_len, 1]
-        input = ggml_permute(ctx, input, 0, 2, 1, 1);
+        input = ggml_permute(ctx, input, 0, 2, 1, 3);
 
         // Crea un tensor para almacenar las posiciones (índices de secuencia) como I32
         ggml_tensor * positions = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, input->ne[2]);
