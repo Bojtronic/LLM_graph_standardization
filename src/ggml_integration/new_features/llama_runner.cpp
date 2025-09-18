@@ -526,11 +526,10 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         current = ggml_add(ctx, current, attn_output);
 
         // Feed Forward Network
-        ggml_tensor *ffn_norm_weight = load_and_dequantize_to_f32(ctx, model_filename, layer_prefix + "ffn_norm.weight");
-        if (!ffn_norm_weight) {
-            std::cerr << "Error loading ffn_norm.weight for layer " << i << std::endl;
-            return false;
-        }
+        GGUFTensor ffn_norm_weight_tensor = read_tensor(model_filename, layer_prefix + "ffn_norm.weight");
+        ggml_tensor* ffn_norm_weight = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, ffn_norm_weight_tensor.dims[0]);
+        memcpy(ffn_norm_weight->data, std::get<std::vector<float>>(ffn_norm_weight_tensor.data).data(), 
+               ffn_norm_weight_tensor.dims[0] * sizeof(float));
 
         ggml_tensor *ffn_norm_out = layer_norm(ctx, current, ffn_norm_weight, nullptr, true, norm_eps);
 
