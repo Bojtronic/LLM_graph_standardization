@@ -438,6 +438,15 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         return false;
     }
 
+    // Reshape to [seq_len, n_head, head_size, 1]
+    current = ggml_reshape_4d(ctx, current, 
+                            current->ne[0],  // seq_len
+                            n_head,          // 32 heads
+                            n_embd / n_head, // 128 dims per head
+                            1);
+
+    // Permute to [n_head, head_size, seq_len, 1]
+    current = ggml_permute(ctx, current, 1, 2, 0, 3);
 
     // 4. Aplicar codificación posicional (RoPE)
 
