@@ -529,7 +529,8 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         // Aplicar atención multi-cabeza
         ggml_tensor *attn_output = multi_head_attention(
             ctx,
-            ggml_cont(ctx, ggml_permute(ctx, q, 0, 2, 1, 3)), // [seq_len, n_head, head_dim]
+            //ggml_cont(ctx, ggml_permute(ctx, q, 0, 2, 1, 3)), // [seq_len, n_head, head_dim]
+            ggml_cont(ctx, ggml_permute(ctx, q, 2, 1, 0, 3)), 
             ggml_cont(ctx, ggml_permute(ctx, k, 0, 2, 1, 3)), // [seq_len, n_head, head_dim]
             ggml_cont(ctx, ggml_permute(ctx, v, 0, 2, 1, 3)), // [seq_len, n_head, head_dim]
             true                                              // is_causal para modelos autoregresivos
