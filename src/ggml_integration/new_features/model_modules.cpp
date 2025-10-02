@@ -82,6 +82,8 @@ ggml_tensor* multi_head_attention(ggml_context* ctx, ggml_tensor* Q, ggml_tensor
 
     // 2. Calcular puntuaciones de atención QK^T
     ggml_tensor* K_transposed = ggml_permute(ctx, K, 0, 2, 1, 3);  // Transponer K
+
+    debug_mul_mat_detailed("scores", Q, K_transposed);
     ggml_tensor* scores = ggml_mul_mat(ctx, Q, K_transposed);
 
     // 3. Escalar las puntuaciones
@@ -102,6 +104,7 @@ ggml_tensor* multi_head_attention(ggml_context* ctx, ggml_tensor* Q, ggml_tensor
     ggml_tensor* attn_weights = ggml_soft_max(ctx, scores);
 
     // 6. Multiplicar por los valores V
+    debug_mul_mat_detailed("output", attn_weights, V);
     ggml_tensor* output = ggml_mul_mat(ctx, attn_weights, V);
 
     return output;
@@ -172,6 +175,8 @@ ggml_tensor * ggml_swiglu(ggml_context * ctx, ggml_tensor * x) {
 // Retorna:
 // - Un tensor que representa la salida de la red feed-forward después de aplicar la transformación lineal y la función de activación especificada.
 ggml_tensor * feed_forward(ggml_context * ctx, ggml_tensor * input, ggml_tensor * weight, ggml_tensor * bias, const char * activation) {
+    
+    debug_mul_mat_detailed("output_feed_fordward", weight, input);
     ggml_tensor * output = ggml_add(ctx, ggml_mul_mat(ctx, weight, input), bias);
 
     // Aplicar función de activación
@@ -329,8 +334,21 @@ ggml_tensor * positional_encoding(ggml_context * ctx, ggml_tensor * input, const
 ggml_tensor* llama_ffn(ggml_context* ctx, ggml_tensor* input, ggml_tensor* gate_proj, ggml_tensor* up_proj, ggml_tensor* down_proj) {
     // Implementación SwiGLU
     ggml_tensor* gate = feed_forward(ctx, input, gate_proj, nullptr, "swiglu");
+
+    debug_mul_mat_detailed("up", up_proj, input);
     ggml_tensor* up = ggml_mul_mat(ctx, up_proj, input);
-    return ggml_mul_mat(ctx, down_proj, ggml_mul(ctx, gate, up));
+
+    
+    
+    ggml_tensor* ffn_gate = ggml_mul(ctx, gate, up);
+
+
+    debug_mul_mat_detailed("ffn_down_proj", down_proj, ffn_gate);
+    ggml_tensor* ffn_down_proj = ggml_mul_mat(ctx, down_proj, ffn_gate);
+
+
+    //return ggml_mul_mat(ctx, down_proj, ggml_mul(ctx, gate, up));
+    return ffn_down_proj;
 }
 
 
@@ -385,11 +403,17 @@ ggml_tensor * multi_head_latent_attention(ggml_context * ctx, ggml_tensor * Q, g
     ggml_tensor * W_Q, ggml_tensor * W_K, ggml_tensor * W_V, 
     int latent_dim, bool is_causal) {
 // Proyecta las consultas (Q), claves (K) y valores (V) en el espacio latente.
+debug_mul_mat_detailed("Q_proj", W_Q, Q);
 ggml_tensor * Q_proj = ggml_mul_mat(ctx, W_Q, Q); // Q_proj = Q * W_Q
+
+debug_mul_mat_detailed("K_proj", W_K, K);
 ggml_tensor * K_proj = ggml_mul_mat(ctx, W_K, K); // K_proj = K * W_K
+
+debug_mul_mat_detailed("V_proj", W_V, V);
 ggml_tensor * V_proj = ggml_mul_mat(ctx, W_V, V); // V_proj = V * W_V
 
 // Calcula las puntuaciones de atención (scores) como el producto escalar entre Q_proj y K_proj.
+debug_mul_mat_detailed("scores", Q_proj, K_proj);
 ggml_tensor * scores = ggml_mul_mat(ctx, Q_proj, K_proj); // scores = Q_proj * K_proj^T
 
 // Escala las puntuaciones de atención para evitar valores demasiado grandes.
@@ -406,15 +430,37 @@ scores = ggml_diag_mask_inf(ctx, scores, 0); // Aplica máscara con valores infi
 ggml_tensor * attn_weights = ggml_soft_max(ctx, scores); // attn_weights = softmax(scores)
 
 // Aplica los pesos de atención a los valores proyectados (V_proj).
+debug_mul_mat_detailed("output", attn_weights, V_proj);
 ggml_tensor * output = ggml_mul_mat(ctx, attn_weights, V_proj); // output = attn_weights * V_proj
 
 // Crea una matriz de pesos para proyectar la salida de la atención en el espacio final.
 ggml_tensor * W_O = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, Q->ne[1], latent_dim);
 
 // Proyecta la salida de la atención usando la matriz de pesos W_O.
+debug_mul_mat_detailed("output_proj", W_O, output);
 ggml_tensor * output_proj = ggml_mul_mat(ctx, W_O, output); // output_proj = output * W_O
 
 // Retorna el resultado final de la atención multi-cabeza latente.
 return output_proj;
 }
 
+
+
+
+
+
+void debug_mul_mat_detailed(const char* name, ggml_tensor* A, ggml_tensor* B) {
+    printf("DEBUG mul_mat %s:\n", name);
+    printf("  A: [%ld, %ld, %ld, %ld]\n", A->ne[0], A->ne[1], A->ne[2], A->ne[3]);
+    printf("  B: [%ld, %ld, %ld, %ld]\n", B->ne[0], B->ne[1], B->ne[2], B->ne[3]);
+    
+    bool dim0_ok = (A->ne[0] == B->ne[0]);
+    bool dim2_ok = (B->ne[2] % A->ne[2] == 0);
+    bool dim3_ok = (B->ne[3] % A->ne[3] == 0);
+    
+    printf("  Requirements:\n");
+    printf("    A->ne[0] (%ld) == B->ne[0] (%ld) = %s\n", A->ne[0], B->ne[0], dim0_ok ? "OK" : "FAIL");
+    printf("    B->ne[2] (%ld) %% A->ne[2] (%ld) = %ld = %s\n", B->ne[2], A->ne[2], B->ne[2] % A->ne[2], dim2_ok ? "OK" : "FAIL");
+    printf("    B->ne[3] (%ld) %% A->ne[3] (%ld) = %ld = %s\n", B->ne[3], A->ne[3], B->ne[3] % A->ne[3], dim3_ok ? "OK" : "FAIL");
+    printf("  ggml_can_mul_mat = %s\n", (dim0_ok && dim2_ok && dim3_ok) ? "true" : "false");
+}

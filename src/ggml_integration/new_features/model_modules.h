@@ -64,4 +64,10 @@ ggml_tensor * multi_head_latent_attention(ggml_context * ctx, ggml_tensor * Q, g
                                           ggml_tensor * W_Q, ggml_tensor * W_K, ggml_tensor * W_V, 
                                           int latent_dim, bool is_causal);
 
+
+
+
+void debug_mul_mat_detailed(const char* name, ggml_tensor* A, ggml_tensor* B);
+
+
 #endif // MODEL_MODULES_H

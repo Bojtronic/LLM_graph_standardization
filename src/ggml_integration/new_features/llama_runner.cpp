@@ -409,7 +409,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
     std::vector<int> response_tokens;
     bool generating = true;
 
-    std::cout << "Model response: ";
+    std::cout << "Model response: \n";
 
     //////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -501,9 +501,9 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
             return false;
         }
 
-        debug_mul_mat_detailed("q_proj", q_proj, attn_norm_out);
-        debug_mul_mat_detailed("k_proj", k_proj, attn_norm_out);
-        debug_mul_mat_detailed("v_proj", v_proj, attn_norm_out);
+        //debug_mul_mat_detailed("q_proj", q_proj, attn_norm_out);
+        //debug_mul_mat_detailed("k_proj", k_proj, attn_norm_out);
+        //debug_mul_mat_detailed("v_proj", v_proj, attn_norm_out);
         
         ggml_tensor *q = ggml_mul_mat(ctx, q_proj, attn_norm_out);
         ggml_tensor *k = ggml_mul_mat(ctx, k_proj, attn_norm_out);
@@ -521,7 +521,11 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         k = ggml_reshape_3d(ctx, k, head_dim, n_head, input_tokens.size());
         v = ggml_reshape_3d(ctx, v, head_dim, n_head, input_tokens.size());
 
+
         printf("  -----PRIMER DEBUNG MUL MAT LISTO----------- ");
+
+
+
         // Aplicar atención multi-cabeza
         ggml_tensor *attn_output = multi_head_attention(
             ctx,
@@ -543,6 +547,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
             return false;
         }
 
+        debug_mul_mat_detailed_x("attn_output", attn_proj, attn_norm_out);
         attn_output = ggml_mul_mat(ctx, attn_proj, attn_output);
 
         // Conexión residual
@@ -592,6 +597,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         return false;
     }
 
+    debug_mul_mat_detailed_x("logits", output_weight, current);
     ggml_tensor *logits = ggml_mul_mat(ctx, output_weight, current);
 
     // 8. Construir y ejecutar el gráfico de computación
@@ -635,7 +641,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
 
 
 
-void debug_mul_mat_detailed(const char* name, ggml_tensor* A, ggml_tensor* B) {
+void debug_mul_mat_detailed_x(const char* name, ggml_tensor* A, ggml_tensor* B) {
     printf("DEBUG mul_mat %s:\n", name);
     printf("  A: [%ld, %ld, %ld, %ld]\n", A->ne[0], A->ne[1], A->ne[2], A->ne[3]);
     printf("  B: [%ld, %ld, %ld, %ld]\n", B->ne[0], B->ne[1], B->ne[2], B->ne[3]);
