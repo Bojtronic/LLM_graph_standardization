@@ -541,6 +541,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         k = ggml_reshape_3d(ctx, k, head_dim, n_head, input_tokens.size());
         v = ggml_reshape_3d(ctx, v, head_dim, n_head, input_tokens.size());
 
+        printf("  -----PRIMER DEBUNG MUL MAT LISTO----------- ");
         // Aplicar atención multi-cabeza
         ggml_tensor *attn_output = multi_head_attention(
             ctx,

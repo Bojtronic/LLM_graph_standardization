@@ -61,7 +61,7 @@ ggml_tensor* get_layer_tensor(ggml_context* ctx, const GraphData& graph_data, co
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 /**
- * Módulo de Atención Multi-Cabezal mejorado
+ * Módulo de Atención Multi-Cabezal
  * 
  * @param ctx Contexto GGML para la asignación de memoria
  * @param Q Tensor de Consulta [seq_len, num_heads, head_dim]
