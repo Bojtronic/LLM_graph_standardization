@@ -200,76 +200,90 @@ std::string decode_basic(const std::vector<int> &tokens)
 /**
  * Función para cargar y desquantizar un tensor a F32
  * Soporta solo tensores de 1D y 2D como se requiere
- * 
+ *
  * @param ctx Contexto GGML
  * @param filename Ruta del archivo del modelo
  * @param tensor_name Nombre del tensor a cargar
  * @return ggml_tensor* Tensor desquantizado en F32, o nullptr en caso de error
  */
-ggml_tensor* load_and_dequantize_to_f32(ggml_context* ctx, 
-                                       const std::string& filename, 
-                                       const std::string& tensor_name) {
-    
+ggml_tensor *load_and_dequantize_to_f32(ggml_context *ctx,
+                                        const std::string &filename,
+                                        const std::string &tensor_name)
+{
+
     // 1. Leer tensor GGUF
     GGUFTensor gguf_tensor = read_tensor(filename, tensor_name);
-    if (gguf_tensor.name.empty()) {
+    if (gguf_tensor.name.empty())
+    {
         std::cerr << "Error: Failed to load tensor '" << tensor_name << "'" << std::endl;
         return nullptr;
     }
 
     // 2. Validar dimensiones (solo 1D o 2D)
     size_t total_elements = 0;
-    if (gguf_tensor.n_dims == 1) {
+    if (gguf_tensor.n_dims == 1)
+    {
         total_elements = gguf_tensor.dims[0];
     }
-    else if (gguf_tensor.n_dims == 2) {
+    else if (gguf_tensor.n_dims == 2)
+    {
         total_elements = gguf_tensor.dims[0] * gguf_tensor.dims[1];
     }
-    else {
-        std::cerr << "Error: Unsupported number of dimensions in tensor '" << tensor_name 
+    else
+    {
+        std::cerr << "Error: Unsupported number of dimensions in tensor '" << tensor_name
                   << "': " << gguf_tensor.n_dims << " (only 1D and 2D supported)" << std::endl;
         return nullptr;
     }
 
     // 3. Verificar que las dimensiones sean válidas
-    for (int i = 0; i < gguf_tensor.n_dims; i++) {
-        if (gguf_tensor.dims[i] <= 0) {
-            std::cerr << "Error: Tensor '" << tensor_name << "' has invalid dimension " 
+    for (int i = 0; i < gguf_tensor.n_dims; i++)
+    {
+        if (gguf_tensor.dims[i] <= 0)
+        {
+            std::cerr << "Error: Tensor '" << tensor_name << "' has invalid dimension "
                       << i << ": " << gguf_tensor.dims[i] << std::endl;
             return nullptr;
         }
     }
 
     // 4. Crear tensor destino F32 con las mismas dimensiones
-    ggml_tensor* tensor = nullptr;
-    if (gguf_tensor.n_dims == 1) {
+    ggml_tensor *tensor = nullptr;
+    if (gguf_tensor.n_dims == 1)
+    {
         tensor = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, gguf_tensor.dims[0]);
-    } else {
+    }
+    else
+    {
         tensor = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, gguf_tensor.dims[0], gguf_tensor.dims[1]);
     }
 
-    if (!tensor) {
+    if (!tensor)
+    {
         std::cerr << "Error: Could not allocate memory for tensor '" << tensor_name << "'" << std::endl;
         return nullptr;
     }
 
     // 5. Obtener datos crudos
-    const void* raw_data = std::visit([](auto&& arg) -> const void* {
-        return arg.empty() ? nullptr : arg.data();
-    }, gguf_tensor.data);
-    
-    if (!raw_data) {
+    const void *raw_data = std::visit([](auto &&arg) -> const void *
+                                      { return arg.empty() ? nullptr : arg.data(); }, gguf_tensor.data);
+
+    if (!raw_data)
+    {
         std::cerr << "Error: No data in tensor '" << tensor_name << "'" << std::endl;
         return nullptr;
     }
-    
+
     // 6. Desquantizar según el tipo
-    try {
+    try
+    {
         dequantize_k_quant(gguf_tensor.type,
-                          raw_data,
-                          static_cast<float*>(tensor->data),
-                          total_elements);
-    } catch (const std::exception& e) {
+                           raw_data,
+                           static_cast<float *>(tensor->data),
+                           total_elements);
+    }
+    catch (const std::exception &e)
+    {
         std::cerr << "Error dequantizing tensor '" << tensor_name << "': " << e.what() << std::endl;
         return nullptr;
     }
@@ -300,7 +314,6 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         }
     }
 
-    
     // Extracción de parámetros con verificación
     int n_embd = read_metadata(model_filename, "llama.embedding_length").value.i32;
     int n_head = read_metadata(model_filename, "llama.attention.head_count").value.i32;
@@ -409,35 +422,34 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
     }
 
     // COPIAR USANDO int32_t EXPLÍCITAMENTE
-    int32_t* tensor_data = (int32_t*)tokens_tensor->data;
-    for (size_t i = 0; i < input_tokens.size(); i++) {
+    int32_t *tensor_data = (int32_t *)tokens_tensor->data;
+    for (size_t i = 0; i < input_tokens.size(); i++)
+    {
         tensor_data[i] = static_cast<int32_t>(input_tokens[i]);
     }
 
-
     // 2. Obtener embeddings de tokens
     ggml_tensor *token_embd = load_and_dequantize_to_f32(ctx, model_filename, "token_embd.weight");
-    if (!token_embd) {
+    if (!token_embd)
+    {
         std::cerr << "Error: Failed to load token embeddings" << std::endl;
         return false;
     }
 
-    
     // 3. Aplicar embeddings
     if (*std::max_element(input_tokens.begin(), input_tokens.end()) >= token_embd->ne[1])
     {
         std::cerr << "Token index exceeds vocabulary size" << std::endl;
         return false;
     }
-    
 
     // a=token_embd   b=tokens_tensor
     ggml_tensor *current = ggml_get_rows(ctx, token_embd, tokens_tensor);
-    if (!current) {
+    if (!current)
+    {
         std::cerr << "Error in ggml_get_rows operation" << std::endl;
         return false;
     }
-
 
     // 4. Aplicar codificación posicional (RoPE)
 
@@ -463,26 +475,28 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
 
         // Atención - Norm Weight
         GGUFTensor attn_norm_weight_tensor = read_tensor(model_filename, layer_prefix + "attn_norm.weight");
-        ggml_tensor* attn_norm_weight = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, attn_norm_weight_tensor.dims[0]);
-        memcpy(attn_norm_weight->data, std::get<std::vector<float>>(attn_norm_weight_tensor.data).data(), 
+        ggml_tensor *attn_norm_weight = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, attn_norm_weight_tensor.dims[0]);
+        memcpy(attn_norm_weight->data, std::get<std::vector<float>>(attn_norm_weight_tensor.data).data(),
                attn_norm_weight_tensor.dims[0] * sizeof(float));
 
         ggml_tensor *attn_norm_out = layer_norm(ctx, current, attn_norm_weight, nullptr, true, norm_eps);
 
-        printf("DEBUG - attn_norm_out dimensions: [%ld, %ld, %ld, %ld]\n", 
-       attn_norm_out->ne[0], attn_norm_out->ne[1], attn_norm_out->ne[2], attn_norm_out->ne[3]);
-
+        printf("DEBUG - attn_norm_out dimensions: [%ld, %ld, %ld, %ld]\n",
+               attn_norm_out->ne[0], attn_norm_out->ne[1], attn_norm_out->ne[2], attn_norm_out->ne[3]);
 
         // Proyecciones Q, K, V - usando función lambda simplificada
-        auto load_proj = [&](const std::string &name) -> ggml_tensor* {
-            ggml_tensor* tensor = load_and_dequantize_to_f32(ctx, model_filename, layer_prefix + name);
-            if (!tensor) {
+        auto load_proj = [&](const std::string &name) -> ggml_tensor *
+        {
+            ggml_tensor *tensor = load_and_dequantize_to_f32(ctx, model_filename, layer_prefix + name);
+            if (!tensor)
+            {
                 std::cerr << "Error loading " << name << " for layer " << i << std::endl;
             }
-            else {
+            else
+            {
                 // DEBUG: Dimensiones de los pesos cargados
                 printf("DEBUG - %s dimensions: [%ld, %ld, %ld, %ld]\n", name.c_str(),
-                    tensor->ne[0], tensor->ne[1], tensor->ne[2], tensor->ne[3]);
+                       tensor->ne[0], tensor->ne[1], tensor->ne[2], tensor->ne[3]);
             }
             return tensor;
         };
@@ -490,22 +504,32 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         ggml_tensor *q_proj = load_proj("attn_q.weight");
         ggml_tensor *k_proj = load_proj("attn_k.weight");
         ggml_tensor *v_proj = load_proj("attn_v.weight");
-        
-        if (!q_proj || !k_proj || !v_proj) {
+
+        if (!q_proj || !k_proj || !v_proj)
+        {
             return false;
         }
 
-        printf("DEBUG - Checking matrix multiplication compatibility:\n");
-        printf("  q_proj: [%ld, %ld] vs attn_norm_out: [%ld, %ld] \n",
-            q_proj->ne[0], q_proj->ne[1], attn_norm_out->ne[0], attn_norm_out->ne[1]);
-        printf("  k_proj: [%ld, %ld] vs attn_norm_out: [%ld, %ld] \n",
-            k_proj->ne[0], k_proj->ne[1], attn_norm_out->ne[0], attn_norm_out->ne[1]);
-        printf("  v_proj: [%ld, %ld] vs attn_norm_out: [%ld, %ld] \n",
-            v_proj->ne[0], v_proj->ne[1], attn_norm_out->ne[0], attn_norm_out->ne[1]);
+        ggml_tensor *attn_norm_out_t = ggml_cont(ctx, ggml_transpose(ctx, attn_norm_out));
 
-        ggml_tensor *q = ggml_mul_mat(ctx, q_proj, attn_norm_out);
-        ggml_tensor *k = ggml_mul_mat(ctx, k_proj, attn_norm_out);
-        ggml_tensor *v = ggml_mul_mat(ctx, v_proj, attn_norm_out);
+        printf("DEBUG - attn_norm_out_t dimensions: [%ld, %ld, %ld, %ld]\n",
+               attn_norm_out_t->ne[0], attn_norm_out_t->ne[1], attn_norm_out_t->ne[2], attn_norm_out_t->ne[3]);
+
+        printf("DEBUG - Checking matrix multiplication compatibility:\n");
+        printf("  q_proj: [%ld, %ld] vs attn_norm_out_t: [%ld, %ld] \n",
+               q_proj->ne[0], q_proj->ne[1], attn_norm_out_t->ne[0], attn_norm_out_t->ne[1]);
+        printf("  k_proj: [%ld, %ld] vs attn_norm_out_t: [%ld, %ld] \n",
+               k_proj->ne[0], k_proj->ne[1], attn_norm_out_t->ne[0], attn_norm_out_t->ne[1]);
+        printf("  v_proj: [%ld, %ld] vs attn_norm_out_t: [%ld, %ld] \n",
+               v_proj->ne[0], v_proj->ne[1], attn_norm_out_t->ne[0], attn_norm_out_t->ne[1]);
+
+        // ggml_tensor *q = ggml_mul_mat(ctx, q_proj, attn_norm_out);
+        // ggml_tensor *k = ggml_mul_mat(ctx, k_proj, attn_norm_out);
+        // ggml_tensor *v = ggml_mul_mat(ctx, v_proj, attn_norm_out);
+
+        ggml_tensor *q = ggml_mul_mat(ctx, q_proj, attn_norm_out_t);
+        ggml_tensor *k = ggml_mul_mat(ctx, k_proj, attn_norm_out_t);
+        ggml_tensor *v = ggml_mul_mat(ctx, v_proj, attn_norm_out_t);
 
         // Aplicar RoPE a Q y K
         q = positional_encoding(ctx, q, "rope", n_embd / n_head, 0, 10000.0f);
@@ -532,7 +556,8 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
 
         // Proyección de salida
         ggml_tensor *attn_proj = load_and_dequantize_to_f32(ctx, model_filename, layer_prefix + "attn_proj.weight");
-        if (!attn_proj) {
+        if (!attn_proj)
+        {
             std::cerr << "Error loading attn_proj.weight for layer " << i << std::endl;
             return false;
         }
@@ -544,8 +569,8 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
 
         // Feed Forward Network
         GGUFTensor ffn_norm_weight_tensor = read_tensor(model_filename, layer_prefix + "ffn_norm.weight");
-        ggml_tensor* ffn_norm_weight = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, ffn_norm_weight_tensor.dims[0]);
-        memcpy(ffn_norm_weight->data, std::get<std::vector<float>>(ffn_norm_weight_tensor.data).data(), 
+        ggml_tensor *ffn_norm_weight = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, ffn_norm_weight_tensor.dims[0]);
+        memcpy(ffn_norm_weight->data, std::get<std::vector<float>>(ffn_norm_weight_tensor.data).data(),
                ffn_norm_weight_tensor.dims[0] * sizeof(float));
 
         ggml_tensor *ffn_norm_out = layer_norm(ctx, current, ffn_norm_weight, nullptr, true, norm_eps);
@@ -554,8 +579,9 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         ggml_tensor *ffn_gate = load_proj("ffn_gate.weight");
         ggml_tensor *ffn_up = load_proj("ffn_up.weight");
         ggml_tensor *ffn_down = load_proj("ffn_down.weight");
-        
-        if (!ffn_gate || !ffn_up || !ffn_down) {
+
+        if (!ffn_gate || !ffn_up || !ffn_down)
+        {
             return false;
         }
 
@@ -567,7 +593,8 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
 
     // 6. Normalización final
     ggml_tensor *output_norm = load_and_dequantize_to_f32(ctx, model_filename, "output_norm.weight");
-    if (!output_norm) {
+    if (!output_norm)
+    {
         std::cerr << "Error loading output_norm.weight" << std::endl;
         ggml_free(ctx);
         return false;
@@ -577,7 +604,8 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
 
     // 7. Capa de salida (LM head)
     ggml_tensor *output_weight = load_and_dequantize_to_f32(ctx, model_filename, "output.weight");
-    if (!output_weight) {
+    if (!output_weight)
+    {
         std::cerr << "Error loading output.weight" << std::endl;
         ggml_free(ctx);
         return false;
@@ -622,9 +650,3 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
     input_tokens.clear();
     return true;
 }
-
-
-
-
-
-
