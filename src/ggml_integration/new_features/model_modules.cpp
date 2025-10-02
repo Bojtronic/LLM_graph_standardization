@@ -104,9 +104,16 @@ ggml_tensor* multi_head_attention(ggml_context* ctx, ggml_tensor* Q, ggml_tensor
     // 5. Aplicar softmax para obtener pesos de atención
     ggml_tensor* attn_weights = ggml_soft_max(ctx, scores);
 
+
+    ggml_tensor* attn_weights_transposed = ggml_permute(ctx, attn_weights, 1, 0, 2, 3);
+
+
     // 6. Multiplicar por los valores V
-    debug_mul_mat_detailed("output", attn_weights, V);
-    ggml_tensor* output = ggml_mul_mat(ctx, attn_weights, V);
+    //debug_mul_mat_detailed("output", attn_weights, V);
+    //ggml_tensor* output = ggml_mul_mat(ctx, attn_weights, V);
+
+    debug_mul_mat_detailed("output", attn_weights_transposed, V);
+    ggml_tensor* output = ggml_mul_mat(ctx, attn_weights_transposed, V);
 
     return output;
 }
