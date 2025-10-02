@@ -496,15 +496,12 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         }
 
         printf("DEBUG - Checking matrix multiplication compatibility:\n");
-        printf("  q_proj: [%ld, %ld] vs attn_norm_out: [%ld, %ld] - can_mul_mat: %d\n",
-            q_proj->ne[0], q_proj->ne[1], attn_norm_out->ne[0], attn_norm_out->ne[1],
-            ggml_can_mul_mat(q_proj, attn_norm_out));
-        printf("  k_proj: [%ld, %ld] vs attn_norm_out: [%ld, %ld] - can_mul_mat: %d\n",
-            k_proj->ne[0], k_proj->ne[1], attn_norm_out->ne[0], attn_norm_out->ne[1],
-            ggml_can_mul_mat(k_proj, attn_norm_out));
-        printf("  v_proj: [%ld, %ld] vs attn_norm_out: [%ld, %ld] - can_mul_mat: %d\n",
-            v_proj->ne[0], v_proj->ne[1], attn_norm_out->ne[0], attn_norm_out->ne[1],
-            ggml_can_mul_mat(v_proj, attn_norm_out));
+        printf("  q_proj: [%ld, %ld] vs attn_norm_out: [%ld, %ld] \n",
+            q_proj->ne[0], q_proj->ne[1], attn_norm_out->ne[0], attn_norm_out->ne[1]);
+        printf("  k_proj: [%ld, %ld] vs attn_norm_out: [%ld, %ld] \n",
+            k_proj->ne[0], k_proj->ne[1], attn_norm_out->ne[0], attn_norm_out->ne[1]);
+        printf("  v_proj: [%ld, %ld] vs attn_norm_out: [%ld, %ld] \n",
+            v_proj->ne[0], v_proj->ne[1], attn_norm_out->ne[0], attn_norm_out->ne[1]);
 
         ggml_tensor *q = ggml_mul_mat(ctx, q_proj, attn_norm_out);
         ggml_tensor *k = ggml_mul_mat(ctx, k_proj, attn_norm_out);
