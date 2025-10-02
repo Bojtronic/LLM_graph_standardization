@@ -82,7 +82,7 @@ ggml_tensor* multi_head_attention(ggml_context* ctx, ggml_tensor* Q, ggml_tensor
 
     // 2. Calcular puntuaciones de atención QK^T
     //ggml_tensor* K_transposed = ggml_permute(ctx, K, 0, 2, 1, 3);  // Transponer K
-    ggml_tensor* K_transposed = ggml_permute(ctx, K, 1, 0, 2, 3);
+    ggml_tensor* K_transposed = ggml_permute(ctx, K, 0, 1, 2, 3);
 
     debug_mul_mat_detailed("scores", Q, K_transposed);
     ggml_tensor* scores = ggml_mul_mat(ctx, Q, K_transposed);
