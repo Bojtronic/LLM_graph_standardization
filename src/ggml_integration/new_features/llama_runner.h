@@ -18,5 +18,6 @@ int sample_next_token(const float* logits, int n_vocab,
                      
 bool run_llama_model(ggml_context* ctx, ggml_backend_t backend, const std::string& model_filename);
 
+void debug_mul_mat_detailed(const char* name, ggml_tensor* A, ggml_tensor* B);
 
 #endif // LLAMA_RUNNER_H
