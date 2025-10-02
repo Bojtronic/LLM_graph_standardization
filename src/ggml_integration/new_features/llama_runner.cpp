@@ -469,11 +469,20 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
 
         ggml_tensor *attn_norm_out = layer_norm(ctx, current, attn_norm_weight, nullptr, true, norm_eps);
 
+        printf("DEBUG - attn_norm_out dimensions: [%ld, %ld, %ld, %ld]\n", 
+       attn_norm_out->ne[0], attn_norm_out->ne[1], attn_norm_out->ne[2], attn_norm_out->ne[3]);
+
+
         // Proyecciones Q, K, V - usando función lambda simplificada
         auto load_proj = [&](const std::string &name) -> ggml_tensor* {
             ggml_tensor* tensor = load_and_dequantize_to_f32(ctx, model_filename, layer_prefix + name);
             if (!tensor) {
                 std::cerr << "Error loading " << name << " for layer " << i << std::endl;
+            }
+            else {
+                // DEBUG: Dimensiones de los pesos cargados
+                printf("DEBUG - %s dimensions: [%ld, %ld, %ld, %ld]\n", name.c_str(),
+                    tensor->ne[0], tensor->ne[1], tensor->ne[2], tensor->ne[3]);
             }
             return tensor;
         };
@@ -485,6 +494,17 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         if (!q_proj || !k_proj || !v_proj) {
             return false;
         }
+
+        printf("DEBUG - Checking matrix multiplication compatibility:\n");
+        printf("  q_proj: [%ld, %ld] vs attn_norm_out: [%ld, %ld] - can_mul_mat: %d\n",
+            q_proj->ne[0], q_proj->ne[1], attn_norm_out->ne[0], attn_norm_out->ne[1],
+            ggml_can_mul_mat(q_proj, attn_norm_out));
+        printf("  k_proj: [%ld, %ld] vs attn_norm_out: [%ld, %ld] - can_mul_mat: %d\n",
+            k_proj->ne[0], k_proj->ne[1], attn_norm_out->ne[0], attn_norm_out->ne[1],
+            ggml_can_mul_mat(k_proj, attn_norm_out));
+        printf("  v_proj: [%ld, %ld] vs attn_norm_out: [%ld, %ld] - can_mul_mat: %d\n",
+            v_proj->ne[0], v_proj->ne[1], attn_norm_out->ne[0], attn_norm_out->ne[1],
+            ggml_can_mul_mat(v_proj, attn_norm_out));
 
         ggml_tensor *q = ggml_mul_mat(ctx, q_proj, attn_norm_out);
         ggml_tensor *k = ggml_mul_mat(ctx, k_proj, attn_norm_out);
