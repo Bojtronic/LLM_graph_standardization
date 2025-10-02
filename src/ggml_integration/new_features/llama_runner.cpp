@@ -481,9 +481,6 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
 
         ggml_tensor *attn_norm_out = layer_norm(ctx, current, attn_norm_weight, nullptr, true, norm_eps);
 
-        printf("DEBUG - attn_norm_out dimensions: [%ld, %ld, %ld, %ld]\n",
-               attn_norm_out->ne[0], attn_norm_out->ne[1], attn_norm_out->ne[2], attn_norm_out->ne[3]);
-
         // Proyecciones Q, K, V - usando función lambda simplificada
         auto load_proj = [&](const std::string &name) -> ggml_tensor *
         {
@@ -491,12 +488,6 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
             if (!tensor)
             {
                 std::cerr << "Error loading " << name << " for layer " << i << std::endl;
-            }
-            else
-            {
-                // DEBUG: Dimensiones de los pesos cargados
-                printf("DEBUG - %s dimensions: [%ld, %ld, %ld, %ld]\n", name.c_str(),
-                       tensor->ne[0], tensor->ne[1], tensor->ne[2], tensor->ne[3]);
             }
             return tensor;
         };
@@ -510,26 +501,15 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
             return false;
         }
 
-        ggml_tensor *attn_norm_out_t = ggml_cont(ctx, ggml_transpose(ctx, attn_norm_out));
+        debug_mul_mat_detailed("q_proj", q_proj, attn_norm_out);
+        debug_mul_mat_detailed("k_proj", k_proj, attn_norm_out);
+        debug_mul_mat_detailed("v_proj", v_proj, attn_norm_out);
+        
+        ggml_tensor *q = ggml_mul_mat(ctx, q_proj, attn_norm_out);
+        ggml_tensor *k = ggml_mul_mat(ctx, k_proj, attn_norm_out);
+        ggml_tensor *v = ggml_mul_mat(ctx, v_proj, attn_norm_out);
 
-        printf("DEBUG - attn_norm_out_t dimensions: [%ld, %ld, %ld, %ld]\n",
-               attn_norm_out_t->ne[0], attn_norm_out_t->ne[1], attn_norm_out_t->ne[2], attn_norm_out_t->ne[3]);
-
-        printf("DEBUG - Checking matrix multiplication compatibility:\n");
-        printf("  q_proj: [%ld, %ld] vs attn_norm_out_t: [%ld, %ld] \n",
-               q_proj->ne[0], q_proj->ne[1], attn_norm_out_t->ne[0], attn_norm_out_t->ne[1]);
-        printf("  k_proj: [%ld, %ld] vs attn_norm_out_t: [%ld, %ld] \n",
-               k_proj->ne[0], k_proj->ne[1], attn_norm_out_t->ne[0], attn_norm_out_t->ne[1]);
-        printf("  v_proj: [%ld, %ld] vs attn_norm_out_t: [%ld, %ld] \n",
-               v_proj->ne[0], v_proj->ne[1], attn_norm_out_t->ne[0], attn_norm_out_t->ne[1]);
-
-        // ggml_tensor *q = ggml_mul_mat(ctx, q_proj, attn_norm_out);
-        // ggml_tensor *k = ggml_mul_mat(ctx, k_proj, attn_norm_out);
-        // ggml_tensor *v = ggml_mul_mat(ctx, v_proj, attn_norm_out);
-
-        ggml_tensor *q = ggml_mul_mat(ctx, q_proj, attn_norm_out_t);
-        ggml_tensor *k = ggml_mul_mat(ctx, k_proj, attn_norm_out_t);
-        ggml_tensor *v = ggml_mul_mat(ctx, v_proj, attn_norm_out_t);
+        
 
         // Aplicar RoPE a Q y K
         q = positional_encoding(ctx, q, "rope", n_embd / n_head, 0, 10000.0f);
@@ -650,4 +630,23 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
     ggml_free(ctx);
     input_tokens.clear();
     return true;
+}
+
+
+
+
+void debug_mul_mat_detailed(const char* name, ggml_tensor* A, ggml_tensor* B) {
+    printf("DEBUG mul_mat %s:\n", name);
+    printf("  A: [%ld, %ld, %ld, %ld]\n", A->ne[0], A->ne[1], A->ne[2], A->ne[3]);
+    printf("  B: [%ld, %ld, %ld, %ld]\n", B->ne[0], B->ne[1], B->ne[2], B->ne[3]);
+    
+    bool dim0_ok = (A->ne[0] == B->ne[0]);
+    bool dim2_ok = (B->ne[2] % A->ne[2] == 0);
+    bool dim3_ok = (B->ne[3] % A->ne[3] == 0);
+    
+    printf("  Requirements:\n");
+    printf("    A->ne[0] (%ld) == B->ne[0] (%ld) = %s\n", A->ne[0], B->ne[0], dim0_ok ? "OK" : "FAIL");
+    printf("    B->ne[2] (%ld) %% A->ne[2] (%ld) = %ld = %s\n", B->ne[2], A->ne[2], B->ne[2] % A->ne[2], dim2_ok ? "OK" : "FAIL");
+    printf("    B->ne[3] (%ld) %% A->ne[3] (%ld) = %ld = %s\n", B->ne[3], A->ne[3], B->ne[3] % A->ne[3], dim3_ok ? "OK" : "FAIL");
+    printf("  ggml_can_mul_mat = %s\n", (dim0_ok && dim2_ok && dim3_ok) ? "true" : "false");
 }
