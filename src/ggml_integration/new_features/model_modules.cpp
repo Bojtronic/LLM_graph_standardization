@@ -73,84 +73,71 @@ ggml_tensor* get_layer_tensor(ggml_context* ctx, const GraphData& graph_data, co
  * @return Tensor con el resultado de la atención [seq_len, num_heads, head_dim]
  */
 ggml_tensor* multi_head_attention(ggml_context* ctx, ggml_tensor* Q, ggml_tensor* K, ggml_tensor* V, bool is_causal, ggml_tensor* attention_mask, float scale_factor) {
+    // 1. Verificación de dimensiones
+    if (Q->ne[0] != K->ne[0] || Q->ne[0] != V->ne[0] || 
+        Q->ne[1] != K->ne[1] || Q->ne[1] != V->ne[1]) {
+        std::cerr << "Error: Dimensiones incompatibles en Q, K o V" << std::endl;
+        return nullptr;
+    }
+
     printf("DEBUG - Input dimensions:\n");
     printf("  Q: [%ld, %ld, %ld, %ld]\n", Q->ne[0], Q->ne[1], Q->ne[2], Q->ne[3]);
     printf("  K: [%ld, %ld, %ld, %ld]\n", K->ne[0], K->ne[1], K->ne[2], K->ne[3]);
     printf("  V: [%ld, %ld, %ld, %ld]\n", V->ne[0], V->ne[1], V->ne[2], V->ne[3]);
 
-    // Obtener dimensiones
-    const int64_t seq_len = Q->ne[0];
-    const int64_t n_head = Q->ne[1]; 
-    const int64_t head_dim = Q->ne[2];
+    // 2. Calcular puntuaciones de atención QK^T
+    // Transponer K para que la multiplicación sea correcta
+    ggml_tensor* K_transposed = ggml_permute(ctx, K, 1, 0, 2, 3);   // Transpone los dos primeros ejes
+    K_transposed = ggml_cont(ctx, K_transposed);                    // Asegurar que no quede como "transposed"
 
-    // 1. Calcular puntuaciones de atención QK^T
-    
-    // Primero: reshape Q y K para separar las cabezas
-    ggml_tensor* Q_reshaped = ggml_reshape_3d(ctx, Q, head_dim, n_head, seq_len); // [head_dim, n_head, seq_len]
-    ggml_tensor* K_reshaped = ggml_reshape_3d(ctx, K, head_dim, n_head, seq_len); // [head_dim, n_head, seq_len]
-    
-    printf("DEBUG - After reshape:\n");
-    printf("  Q_reshaped: [%ld, %ld, %ld, %ld]\n", Q_reshaped->ne[0], Q_reshaped->ne[1], Q_reshaped->ne[2], Q_reshaped->ne[3]);
-    printf("  K_reshaped: [%ld, %ld, %ld, %ld]\n", K_reshaped->ne[0], K_reshaped->ne[1], K_reshaped->ne[2], K_reshaped->ne[3]);
+    printf("DEBUG - K_transposed: [%ld, %ld, %ld, %ld]\n", 
+           K_transposed->ne[0], K_transposed->ne[1], K_transposed->ne[2], K_transposed->ne[3]);
 
-    // Transponer K para K^T: [head_dim, n_head, seq_len] -> [seq_len, n_head, head_dim]
-    ggml_tensor* K_transposed = ggml_cont(ctx, ggml_permute(ctx, K_reshaped, 2, 1, 0, 3)); // [seq_len, n_head, head_dim]
-    
-    // Transponer Q para la multiplicación: [head_dim, n_head, seq_len] -> [n_head, seq_len, head_dim]
-    ggml_tensor* Q_transposed = ggml_cont(ctx, ggml_permute(ctx, Q_reshaped, 1, 2, 0, 3)); // [n_head, seq_len, head_dim]
-
-    printf("DEBUG - After transpose (with cont):\n");
-    printf("  Q_transposed: [%ld, %ld, %ld, %ld]\n", Q_transposed->ne[0], Q_transposed->ne[1], Q_transposed->ne[2], Q_transposed->ne[3]);
-    printf("  K_transposed: [%ld, %ld, %ld, %ld]\n", K_transposed->ne[0], K_transposed->ne[1], K_transposed->ne[2], K_transposed->ne[3]);
-
-    debug_mul_mat_detailed("scores", Q_transposed, K_transposed);
-    ggml_tensor* scores = ggml_mul_mat(ctx, Q_transposed, K_transposed); // [n_head, seq_len, seq_len]
+    debug_mul_mat_detailed("scores", Q, K_transposed);
+    ggml_tensor* scores = ggml_mul_mat(ctx, Q, K_transposed);
 
     printf("DEBUG - scores after QK^T: [%ld, %ld, %ld, %ld]\n", 
            scores->ne[0], scores->ne[1], scores->ne[2], scores->ne[3]);
 
-    // 2. Escalar las puntuaciones
-    const float scaling_factor = (scale_factor == 0.0f) ? 
-        1.0f / sqrtf(static_cast<float>(head_dim)) : scale_factor;
+    // 3. Escalar las puntuaciones
+    const float scaling_factor = (scale_factor == 0.0f)
+        ? 1.0f / sqrtf(static_cast<float>(Q->ne[0]))
+        : scale_factor;
     scores = ggml_scale(ctx, scores, scaling_factor);
 
-    // 3. Aplicar máscaras de atención
+    // 4. Aplicar máscaras de atención
     if (is_causal) {
-        scores = ggml_diag_mask_inf(ctx, scores, 0);
-    }
-    
-    if (attention_mask != nullptr) {
-        scores = ggml_add(ctx, scores, attention_mask);
+        scores = ggml_diag_mask_inf(ctx, scores, 0);  // Máscara causal estándar
     }
 
-    // 4. Aplicar softmax para obtener pesos de atención
+    if (attention_mask != nullptr) {
+        scores = ggml_add(ctx, scores, attention_mask);  // Máscara adicional
+    }
+
+    // 5. Aplicar softmax para obtener pesos de atención
     ggml_tensor* attn_weights = ggml_soft_max(ctx, scores);
-    printf("DEBUG - attn_weights after softmax: [%ld, %ld, %ld, %ld]\n", 
+
+    printf("DEBUG - attn_weights: [%ld, %ld, %ld, %ld]\n", 
            attn_weights->ne[0], attn_weights->ne[1], attn_weights->ne[2], attn_weights->ne[3]);
 
-    // 5. Preparar V para la multiplicación
-    ggml_tensor* V_reshaped = ggml_reshape_3d(ctx, V, head_dim, n_head, seq_len); // [head_dim, n_head, seq_len]
-    ggml_tensor* V_transposed = ggml_cont(ctx, ggml_permute(ctx, V_reshaped, 1, 2, 0, 3)); // [n_head, seq_len, head_dim]
+    // 6. Transponer pesos de atención para la multiplicación con V
+    ggml_tensor* attn_weights_transposed = ggml_permute(ctx, attn_weights, 1, 0, 2, 3);
+    attn_weights_transposed = ggml_cont(ctx, attn_weights_transposed);
 
-    printf("DEBUG - V for multiplication:\n");
-    printf("  V_transposed: [%ld, %ld, %ld, %ld]\n", V_transposed->ne[0], V_transposed->ne[1], V_transposed->ne[2], V_transposed->ne[3]);
+    printf("DEBUG - attn_weights_transposed: [%ld, %ld, %ld, %ld]\n", 
+           attn_weights_transposed->ne[0], attn_weights_transposed->ne[1], 
+           attn_weights_transposed->ne[2], attn_weights_transposed->ne[3]);
 
-    // 6. Multiplicar attn_weights * V
-    debug_mul_mat_detailed("output", attn_weights, V_transposed);
-    ggml_tensor* output = ggml_mul_mat(ctx, attn_weights, V_transposed); // [n_head, seq_len, head_dim]
-
-    printf("DEBUG - output before final reshape: [%ld, %ld, %ld, %ld]\n", 
-           output->ne[0], output->ne[1], output->ne[2], output->ne[3]);
-
-    // 7. Reorganizar output al formato original [seq_len, n_head, head_dim]
-    ggml_tensor* output_perm = ggml_cont(ctx, ggml_permute(ctx, output, 1, 0, 2, 3)); // [seq_len, n_head, head_dim]
-    ggml_tensor* output_final = ggml_reshape_4d(ctx, output_perm, seq_len, n_head, head_dim, 1);
+    // 7. Multiplicar por los valores V
+    debug_mul_mat_detailed("output", attn_weights_transposed, V);
+    ggml_tensor* output = ggml_mul_mat(ctx, attn_weights_transposed, V);
 
     printf("DEBUG - output final: [%ld, %ld, %ld, %ld]\n", 
-           output_final->ne[0], output_final->ne[1], output_final->ne[2], output_final->ne[3]);
+           output->ne[0], output->ne[1], output->ne[2], output->ne[3]);
 
-    return output_final;
+    return output;
 }
+
 
 /**
  * Normalización de capa mejorada para múltiples arquitecturas
