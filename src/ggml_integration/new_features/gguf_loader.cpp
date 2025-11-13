@@ -196,7 +196,7 @@ std::string infer_dst_tensor(const std::string& tensor_name, llm_arch arch) {
  */
 
 // crear el archivo.graph primero sin decuantizar los datos
-// a la estructura GraphData no incluirle los datos de los tensores solo el nombre, tipo, dimensiones y operacion (de tensores y/o unaria)
+// a la estructura GraphData no incluirle los datos de los tensores (estos datos si estarian en el archivo file_graph) solo el nombre, tipo, dimensiones y operacion (de tensores y/o unaria)
 
 GraphData gguf_graph_data(const struct gguf_context *ctx, const char *file_gguf, const char *file_graph)
 {

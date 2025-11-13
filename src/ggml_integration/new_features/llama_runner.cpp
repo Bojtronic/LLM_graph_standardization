@@ -522,7 +522,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         v = ggml_reshape_3d(ctx, v, head_dim, n_head, input_tokens.size());
 
 
-        printf("  -----PRIMER DEBUNG MUL MAT LISTO----------- ");
+        printf("  -----PRIMER DEBUNG MUL MAT LISTO----------- \n");
 
 
 
