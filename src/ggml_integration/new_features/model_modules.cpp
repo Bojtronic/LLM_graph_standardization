@@ -72,71 +72,148 @@ ggml_tensor* get_layer_tensor(ggml_context* ctx, const GraphData& graph_data, co
  * @param scale_factor Factor de escalado opcional (si es 0, se usa 1/sqrt(d_k))
  * @return Tensor con el resultado de la atención [seq_len, num_heads, head_dim]
  */
-ggml_tensor* multi_head_attention(ggml_context* ctx, ggml_tensor* Q, ggml_tensor* K, ggml_tensor* V, bool is_causal, ggml_tensor* attention_mask, float scale_factor) {
-    // 1. Verificación de dimensiones
-    if (Q->ne[0] != K->ne[0] || Q->ne[0] != V->ne[0] || 
-        Q->ne[1] != K->ne[1] || Q->ne[1] != V->ne[1]) {
-        std::cerr << "Error: Dimensiones incompatibles en Q, K o V" << std::endl;
+ggml_tensor* multi_head_attention(ggml_context* ctx,
+                                  ggml_tensor* Q,
+                                  ggml_tensor* K,
+                                  ggml_tensor* V,
+                                  bool is_causal,
+                                  ggml_tensor* attention_mask,
+                                  float scale_factor) {
+    // Validaciones básicas
+    if (!ctx || !Q || !K || !V) {
+        fprintf(stderr, "Error: puntero NULL en multi_head_attention\n");
+        return nullptr;
+    }
+
+    // Convención: [seq_len, n_heads, head_dim, batch]
+    const int64_t seq_len_q = Q->ne[0];
+    const int64_t n_heads  = Q->ne[1];
+    const int64_t head_dim = Q->ne[2];
+    const int64_t batch    = (Q->ne[3] == 0 ? 1 : Q->ne[3]);
+
+    if (K->ne[0] != seq_len_q || K->ne[1] != n_heads || K->ne[2] != head_dim ||
+        V->ne[0] != K->ne[0]  || V->ne[1] != K->ne[1]  || V->ne[2] != K->ne[2]) {
+        fprintf(stderr, "Error: dimensiones inconsistentes entre Q, K, V\n");
+        printf(" Q: [%lld,%lld,%lld,%lld]\n", (long long)Q->ne[0], (long long)Q->ne[1], (long long)Q->ne[2], (long long)Q->ne[3]);
+        printf(" K: [%lld,%lld,%lld,%lld]\n", (long long)K->ne[0], (long long)K->ne[1], (long long)K->ne[2], (long long)K->ne[3]);
+        printf(" V: [%lld,%lld,%lld,%lld]\n", (long long)V->ne[0], (long long)V->ne[1], (long long)V->ne[2], (long long)V->ne[3]);
         return nullptr;
     }
 
     printf("DEBUG - Input dimensions:\n");
-    printf("  Q: [%ld, %ld, %ld, %ld]\n", Q->ne[0], Q->ne[1], Q->ne[2], Q->ne[3]);
-    printf("  K: [%ld, %ld, %ld, %ld]\n", K->ne[0], K->ne[1], K->ne[2], K->ne[3]);
-    printf("  V: [%ld, %ld, %ld, %ld]\n", V->ne[0], V->ne[1], V->ne[2], V->ne[3]);
+    printf("  Q: [%lld, %lld, %lld, %lld]\n", (long long)Q->ne[0], (long long)Q->ne[1], (long long)Q->ne[2], (long long)Q->ne[3]);
+    printf("  K: [%lld, %lld, %lld, %lld]\n", (long long)K->ne[0], (long long)K->ne[1], (long long)K->ne[2], (long long)K->ne[3]);
+    printf("  V: [%lld, %lld, %lld, %lld]\n", (long long)V->ne[0], (long long)V->ne[1], (long long)V->ne[2], (long long)V->ne[3]);
 
-    // 2. Calcular puntuaciones de atención QK^T
-    // Transponer K para que la multiplicación sea correcta
-    ggml_tensor* K_transposed = ggml_permute(ctx, K, 1, 0, 2, 3);   // Transpone los dos primeros ejes
-    K_transposed = ggml_cont(ctx, K_transposed);                    // Asegurar que no quede como "transposed"
+    // -------------------------------------------------------------------------
+    // 1) Reordenar Q, K, V a formato [head_dim, seq_len, n_heads, batch]
+    //    partiendo de [seq_len, n_heads, head_dim, batch]
+    //    permute indices: (2, 0, 1, 3)
+    // -------------------------------------------------------------------------
+    ggml_tensor* Qp = ggml_permute(ctx, Q, 2, 0, 1, 3); Qp = ggml_cont(ctx, Qp);
+    ggml_tensor* Kp = ggml_permute(ctx, K, 2, 0, 1, 3); Kp = ggml_cont(ctx, Kp);
+    ggml_tensor* Vp = ggml_permute(ctx, V, 2, 0, 1, 3); Vp = ggml_cont(ctx, Vp);
 
-    printf("DEBUG - K_transposed: [%ld, %ld, %ld, %ld]\n", 
-           K_transposed->ne[0], K_transposed->ne[1], K_transposed->ne[2], K_transposed->ne[3]);
+    printf("DEBUG - Qp: [%lld, %lld, %lld, %lld]\n", (long long)Qp->ne[0], (long long)Qp->ne[1], (long long)Qp->ne[2], (long long)Qp->ne[3]);
+    printf("DEBUG - Kp: [%lld, %lld, %lld, %lld]\n", (long long)Kp->ne[0], (long long)Kp->ne[1], (long long)Kp->ne[2], (long long)Kp->ne[3]);
+    printf("DEBUG - Vp: [%lld, %lld, %lld, %lld]\n", (long long)Vp->ne[0], (long long)Vp->ne[1], (long long)Vp->ne[2], (long long)Vp->ne[3]);
 
-    debug_mul_mat_detailed("scores", Q, K_transposed);
-    ggml_tensor* scores = ggml_mul_mat(ctx, Q, K_transposed);
+    // -------------------------------------------------------------------------
+    // 2) Calcular scores_temp = Kp * Qp  (conveniencia para ggml_mul_mat)
+    //    Kp: [head_dim, seq_len_k, n_heads, batch]
+    //    Qp: [head_dim, seq_len_q, n_heads, batch]
+    //    ggml_mul_mat(Kp, Qp) => [seq_len_k, seq_len_q, n_heads, batch]
+    // -------------------------------------------------------------------------
+    debug_mul_mat_detailed("scores_temp", Kp, Qp);
+    ggml_tensor* scores_temp = ggml_mul_mat(ctx, Kp, Qp);
 
-    printf("DEBUG - scores after QK^T: [%ld, %ld, %ld, %ld]\n", 
-           scores->ne[0], scores->ne[1], scores->ne[2], scores->ne[3]);
+    printf("DEBUG - scores_temp (Kp*Qp): [%lld, %lld, %lld, %lld]\n",
+           (long long)scores_temp->ne[0], (long long)scores_temp->ne[1],
+           (long long)scores_temp->ne[2], (long long)scores_temp->ne[3]);
 
-    // 3. Escalar las puntuaciones
-    const float scaling_factor = (scale_factor == 0.0f)
-        ? 1.0f / sqrtf(static_cast<float>(Q->ne[0]))
-        : scale_factor;
-    scores = ggml_scale(ctx, scores, scaling_factor);
+    // -------------------------------------------------------------------------
+    // 3) Permutar scores_temp a la forma esperada [seq_len_q, seq_len_k, n_heads, batch]
+    //    scores = permute(scores_temp, 1, 0, 2, 3)
+    // -------------------------------------------------------------------------
+    ggml_tensor* scores = ggml_permute(ctx, scores_temp, 1, 0, 2, 3);
+    scores = ggml_cont(ctx, scores);
 
-    // 4. Aplicar máscaras de atención
+    printf("DEBUG - scores after permute (QK^T): [%lld, %lld, %lld, %lld]\n",
+           (long long)scores->ne[0], (long long)scores->ne[1],
+           (long long)scores->ne[2], (long long)scores->ne[3]);
+
+    // -------------------------------------------------------------------------
+    // 4) Escalado usando head_dim (d_k)
+    // -------------------------------------------------------------------------
+    const float scaling = (scale_factor == 0.0f) ? 1.0f / sqrtf((float)head_dim) : scale_factor;
+    scores = ggml_scale(ctx, scores, scaling);
+
+    // -------------------------------------------------------------------------
+    // 5) Aplicar máscaras
+    //    - is_causal: máscara diagonal (asume scores tiene [seq_len_q, seq_len_k, n_heads, batch])
+    //    - attention_mask: si existe, se añade (se asume que está compatibilizada con scores)
+    // -------------------------------------------------------------------------
     if (is_causal) {
-        scores = ggml_diag_mask_inf(ctx, scores, 0);  // Máscara causal estándar
+        scores = ggml_diag_mask_inf(ctx, scores, 0);
     }
-
     if (attention_mask != nullptr) {
-        scores = ggml_add(ctx, scores, attention_mask);  // Máscara adicional
+        scores = ggml_add(ctx, scores, attention_mask);
     }
 
-    // 5. Aplicar softmax para obtener pesos de atención
+    // -------------------------------------------------------------------------
+    // 6) Softmax -> attn_weights: [seq_len_q, seq_len_k, n_heads, batch]
+    // -------------------------------------------------------------------------
     ggml_tensor* attn_weights = ggml_soft_max(ctx, scores);
+    attn_weights = ggml_cont(ctx, attn_weights);
 
-    printf("DEBUG - attn_weights: [%ld, %ld, %ld, %ld]\n", 
-           attn_weights->ne[0], attn_weights->ne[1], attn_weights->ne[2], attn_weights->ne[3]);
+    printf("DEBUG - attn_weights: [%lld, %lld, %lld, %lld]\n",
+           (long long)attn_weights->ne[0], (long long)attn_weights->ne[1],
+           (long long)attn_weights->ne[2], (long long)attn_weights->ne[3]);
 
-    // 6. Transponer pesos de atención para la multiplicación con V
-    ggml_tensor* attn_weights_transposed = ggml_permute(ctx, attn_weights, 1, 0, 2, 3);
-    attn_weights_transposed = ggml_cont(ctx, attn_weights_transposed);
+    // -------------------------------------------------------------------------
+    // 7) Preparar A y B para la multiplicación final
+    //    A = permute(attn_weights, 1, 0, 2, 3) => [seq_len_k, seq_len_q, n_heads, batch]
+    //    B = V (reordenado Vp) has shape [head_dim, seq_len_k, n_heads, batch]
+    //    Para ggml_mul_mat(A, B) necesitamos A.ne[0] == B.ne[0] == seq_len_k.
+    //    Pero ggml_mul_mat(A,B) produce resultado con:
+    //      result->ne[0] = A->ne[1] = seq_len_q
+    //      result->ne[1] = B->ne[1] = n_heads
+    //      result->ne[2] = B->ne[2] = head_dim
+    //    => output [seq_len_q, n_heads, head_dim, batch] (lo que queremos)
+    // -------------------------------------------------------------------------
+    ggml_tensor* A = ggml_permute(ctx, attn_weights, 2, 1, 0, 3); 
+    A = ggml_cont(ctx, A);
 
-    printf("DEBUG - attn_weights_transposed: [%ld, %ld, %ld, %ld]\n", 
-           attn_weights_transposed->ne[0], attn_weights_transposed->ne[1], 
-           attn_weights_transposed->ne[2], attn_weights_transposed->ne[3]);
+    ggml_tensor* B = ggml_permute(ctx, V, 1, 0, 2, 3);             // Vp is [head_dim, seq_len, n_heads, batch] but we need B with ne[0]=seq_len_k
+    // We want B->ne[0] == seq_len_k. Starting from V original [seq_len_k, n_heads, head_dim, batch],
+    // permute(V, 0,1,2,3) would leave as-is. But we have Vp above; to be safe use ggml_cont on original V too.
+    ggml_tensor* B_cont = ggml_cont(ctx, V);
 
-    // 7. Multiplicar por los valores V
-    debug_mul_mat_detailed("output", attn_weights_transposed, V);
-    ggml_tensor* output = ggml_mul_mat(ctx, attn_weights_transposed, V);
+    printf("DEBUG - A (for output mul): [%lld, %lld, %lld, %lld]\n",
+           (long long)A->ne[0], (long long)A->ne[1], (long long)A->ne[2], (long long)A->ne[3]);
+    printf("DEBUG - B_cont (V):      [%lld, %lld, %lld, %lld]\n",
+           (long long)B_cont->ne[0], (long long)B_cont->ne[1], (long long)B_cont->ne[2], (long long)B_cont->ne[3]);
 
-    printf("DEBUG - output final: [%ld, %ld, %ld, %ld]\n", 
-           output->ne[0], output->ne[1], output->ne[2], output->ne[3]);
+    printf("DEBUG - ggml_is_contiguous(A): %d\n", ggml_is_contiguous(A));
+    printf("DEBUG - ggml_is_contiguous(B_cont): %d\n", ggml_is_contiguous(B_cont));
+    
+    // Debug check
+    debug_mul_mat_detailed("output", A, B_cont);
+
+    A = ggml_cont(ctx, A);
+    // -------------------------------------------------------------------------
+    // 8) output = ggml_mul_mat(A, B_cont) -> expected [seq_len_q, n_heads, head_dim, batch]
+    // -------------------------------------------------------------------------
+    ggml_tensor* output = ggml_mul_mat(ctx, A, B_cont);
+    output = ggml_cont(ctx, output);
+
+    printf("DEBUG - output final: [%lld, %lld, %lld, %lld]\n",
+           (long long)output->ne[0], (long long)output->ne[1],
+           (long long)output->ne[2], (long long)output->ne[3]);
 
     return output;
 }
+
 
 
 /**
