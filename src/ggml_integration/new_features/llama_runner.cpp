@@ -538,20 +538,28 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
             true                                              // is_causal para modelos autoregresivos
         );
 
+
+        
+        printf("  -----multi_head_attention LISTO----------- \n");
+
         // Reorganizar la salida
-        attn_output = ggml_permute(ctx, attn_output, 0, 2, 1, 3);
-        attn_output = ggml_reshape_2d(ctx, attn_output, n_embd, input_tokens.size());
+        //attn_output = ggml_permute(ctx, attn_output, 1, 2, 0, 3);
+
+        //attn_output = ggml_cont(ctx, attn_output);
+        //attn_output = ggml_reshape_2d(ctx, attn_output, n_embd, input_tokens.size());
 
         // Proyección de salida
-        ggml_tensor *attn_proj = load_and_dequantize_to_f32(ctx, model_filename, layer_prefix + "attn_proj.weight");
-        if (!attn_proj)
+        ggml_tensor *attn_weight = load_and_dequantize_to_f32(ctx, model_filename, layer_prefix + "attn_output.weight");
+        if (!attn_weight)
         {
-            std::cerr << "Error loading attn_proj.weight for layer " << i << std::endl;
+            std::cerr << "Error loading attn_output.weight for layer " << i << std::endl;
             return false;
         }
 
-        debug_mul_mat_detailed_x("attn_output", attn_proj, attn_norm_out);
-        attn_output = ggml_mul_mat(ctx, attn_proj, attn_output);
+        debug_mul_mat_detailed_x("attn_output", attn_weight, attn_norm_out);
+        attn_output = ggml_mul_mat(ctx, attn_weight, attn_output);
+
+        printf("  -----siguiente debug----------- \n");
 
         // Conexión residual
         current = ggml_add(ctx, current, attn_output);

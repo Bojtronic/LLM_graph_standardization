@@ -200,10 +200,11 @@ ggml_tensor* multi_head_attention(ggml_context* ctx,
     // Debug check
     debug_mul_mat_detailed("output", A, B_cont);
 
-    A = ggml_cont(ctx, A);
     // -------------------------------------------------------------------------
     // 8) output = ggml_mul_mat(A, B_cont) -> expected [seq_len_q, n_heads, head_dim, batch]
     // -------------------------------------------------------------------------
+
+    printf("DEBUG - ggml_is_contiguous(A): %d\n", ggml_is_contiguous(A));
     ggml_tensor* output = ggml_mul_mat(ctx, A, B_cont);
     output = ggml_cont(ctx, output);
 
@@ -213,6 +214,7 @@ ggml_tensor* multi_head_attention(ggml_context* ctx,
 
     return output;
 }
+
 
 
 
