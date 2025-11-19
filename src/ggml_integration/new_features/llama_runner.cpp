@@ -530,11 +530,14 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         ggml_tensor *attn_output = multi_head_attention(
             ctx,
             //ggml_cont(ctx, ggml_permute(ctx, q, 0, 2, 1, 3)), // [seq_len, n_head, head_dim]
-            ggml_cont(ctx, ggml_permute(ctx, q, 2, 1, 0, 3)), 
+            //ggml_cont(ctx, ggml_permute(ctx, q, 2, 1, 0, 3)), 
+            q,
             //ggml_cont(ctx, ggml_permute(ctx, k, 0, 2, 1, 3)), // [seq_len, n_head, head_dim]
-            ggml_cont(ctx, ggml_permute(ctx, k, 2, 1, 0, 3)), 
+            //ggml_cont(ctx, ggml_permute(ctx, k, 2, 1, 0, 3)), 
+            k,
             //ggml_cont(ctx, ggml_permute(ctx, v, 0, 2, 1, 3)), // [seq_len, n_head, head_dim]
-            ggml_cont(ctx, ggml_permute(ctx, v, 2, 1, 0, 3)), 
+            //ggml_cont(ctx, ggml_permute(ctx, v, 2, 1, 0, 3)), 
+            v,
             true                                              // is_causal para modelos autoregresivos
         );
 
@@ -542,11 +545,10 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         
         printf("  -----multi_head_attention LISTO----------- \n");
 
-        // Reorganizar la salida
-        //attn_output = ggml_permute(ctx, attn_output, 1, 2, 0, 3);
-
-        //attn_output = ggml_cont(ctx, attn_output);
-        //attn_output = ggml_reshape_2d(ctx, attn_output, n_embd, input_tokens.size());
+        
+        attn_output = ggml_permute(ctx, attn_output, 0, 2, 1, 3); 
+        attn_output = ggml_cont(ctx, attn_output);
+        attn_output = ggml_reshape_2d(ctx, attn_output, n_embd, input_tokens.size()); 
 
         // Proyección de salida
         ggml_tensor *attn_weight = load_and_dequantize_to_f32(ctx, model_filename, layer_prefix + "attn_output.weight");
@@ -559,10 +561,23 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         debug_mul_mat_detailed_x("attn_output", attn_weight, attn_norm_out);
         attn_output = ggml_mul_mat(ctx, attn_weight, attn_output);
 
-        printf("  -----siguiente debug----------- \n");
+        current = ggml_permute(ctx, current, 0, 2, 1, 3); 
+        current = ggml_cont(ctx, current);
+
+        printf("DEBUG - current : [%lld, %lld, %lld, %lld]\n",
+           (long long)current->ne[0], (long long)current->ne[1], (long long)current->ne[2], (long long)current->ne[3]);
+        
+        printf("DEBUG - attn_output :      [%lld, %lld, %lld, %lld]\n",
+            (long long)attn_output->ne[0], (long long)attn_output->ne[1], (long long)attn_output->ne[2], (long long)attn_output->ne[3]);
+
+
+
+
 
         // Conexión residual
         current = ggml_add(ctx, current, attn_output);
+
+        printf("  -----siguiente debug----------- \n");
 
         // Feed Forward Network
         GGUFTensor ffn_norm_weight_tensor = read_tensor(model_filename, layer_prefix + "ffn_norm.weight");

@@ -110,9 +110,9 @@ ggml_tensor* multi_head_attention(ggml_context* ctx,
     //    partiendo de [seq_len, n_heads, head_dim, batch]
     //    permute indices: (2, 0, 1, 3)
     // -------------------------------------------------------------------------
-    ggml_tensor* Qp = ggml_permute(ctx, Q, 2, 0, 1, 3); Qp = ggml_cont(ctx, Qp);
-    ggml_tensor* Kp = ggml_permute(ctx, K, 2, 0, 1, 3); Kp = ggml_cont(ctx, Kp);
-    ggml_tensor* Vp = ggml_permute(ctx, V, 2, 0, 1, 3); Vp = ggml_cont(ctx, Vp);
+    ggml_tensor* Qp = ggml_permute(ctx, Q, 2, 1, 3, 0); Qp = ggml_cont(ctx, Qp);
+    ggml_tensor* Kp = ggml_permute(ctx, K, 1, 2, 3, 0); Kp = ggml_cont(ctx, Kp);
+    ggml_tensor* Vp = ggml_permute(ctx, V, 1, 2, 0, 3); Vp = ggml_cont(ctx, Vp);
 
     printf("DEBUG - Qp: [%lld, %lld, %lld, %lld]\n", (long long)Qp->ne[0], (long long)Qp->ne[1], (long long)Qp->ne[2], (long long)Qp->ne[3]);
     printf("DEBUG - Kp: [%lld, %lld, %lld, %lld]\n", (long long)Kp->ne[0], (long long)Kp->ne[1], (long long)Kp->ne[2], (long long)Kp->ne[3]);
@@ -135,7 +135,7 @@ ggml_tensor* multi_head_attention(ggml_context* ctx,
     // 3) Permutar scores_temp a la forma esperada [seq_len_q, seq_len_k, n_heads, batch]
     //    scores = permute(scores_temp, 1, 0, 2, 3)
     // -------------------------------------------------------------------------
-    ggml_tensor* scores = ggml_permute(ctx, scores_temp, 1, 0, 2, 3);
+    ggml_tensor* scores = ggml_permute(ctx, scores_temp, 2, 1, 0, 3);
     scores = ggml_cont(ctx, scores);
 
     printf("DEBUG - scores after permute (QK^T): [%lld, %lld, %lld, %lld]\n",
@@ -172,22 +172,18 @@ ggml_tensor* multi_head_attention(ggml_context* ctx,
 
     // -------------------------------------------------------------------------
     // 7) Preparar A y B para la multiplicación final
-    //    A = permute(attn_weights, 1, 0, 2, 3) => [seq_len_k, seq_len_q, n_heads, batch]
-    //    B = V (reordenado Vp) has shape [head_dim, seq_len_k, n_heads, batch]
-    //    Para ggml_mul_mat(A, B) necesitamos A.ne[0] == B.ne[0] == seq_len_k.
-    //    Pero ggml_mul_mat(A,B) produce resultado con:
-    //      result->ne[0] = A->ne[1] = seq_len_q
-    //      result->ne[1] = B->ne[1] = n_heads
-    //      result->ne[2] = B->ne[2] = head_dim
-    //    => output [seq_len_q, n_heads, head_dim, batch] (lo que queremos)
+    //    A debe ser permute(attn_weights, 1,0,2,3) => [seq_len_k, seq_len_q, n_heads, batch]
+    //    B_cont debe ser V en su layout original y contiguo => [seq_len_k, n_heads, head_dim, batch]
     // -------------------------------------------------------------------------
-    ggml_tensor* A = ggml_permute(ctx, attn_weights, 2, 1, 0, 3); 
+    ggml_tensor* A = ggml_permute(ctx, attn_weights, 0, 2, 1, 3); 
+    //ggml_tensor* A = attn_weights;
     A = ggml_cont(ctx, A);
 
-    ggml_tensor* B = ggml_permute(ctx, V, 1, 0, 2, 3);             // Vp is [head_dim, seq_len, n_heads, batch] but we need B with ne[0]=seq_len_k
-    // We want B->ne[0] == seq_len_k. Starting from V original [seq_len_k, n_heads, head_dim, batch],
-    // permute(V, 0,1,2,3) would leave as-is. But we have Vp above; to be safe use ggml_cont on original V too.
-    ggml_tensor* B_cont = ggml_cont(ctx, V);
+    
+    // Usar V tal cual (original): [seq_len_k, n_heads, head_dim, batch]
+    ggml_tensor* B_cont = ggml_permute(ctx, V, 0, 2, 3, 1);
+    //ggml_tensor* B_cont = V;
+    B_cont = ggml_cont(ctx, B_cont);
 
     printf("DEBUG - A (for output mul): [%lld, %lld, %lld, %lld]\n",
            (long long)A->ne[0], (long long)A->ne[1], (long long)A->ne[2], (long long)A->ne[3]);
@@ -196,17 +192,13 @@ ggml_tensor* multi_head_attention(ggml_context* ctx,
 
     printf("DEBUG - ggml_is_contiguous(A): %d\n", ggml_is_contiguous(A));
     printf("DEBUG - ggml_is_contiguous(B_cont): %d\n", ggml_is_contiguous(B_cont));
-    
-    // Debug check
+
     debug_mul_mat_detailed("output", A, B_cont);
 
-    // -------------------------------------------------------------------------
-    // 8) output = ggml_mul_mat(A, B_cont) -> expected [seq_len_q, n_heads, head_dim, batch]
-    // -------------------------------------------------------------------------
-
-    printf("DEBUG - ggml_is_contiguous(A): %d\n", ggml_is_contiguous(A));
     ggml_tensor* output = ggml_mul_mat(ctx, A, B_cont);
     output = ggml_cont(ctx, output);
+
+    
 
     printf("DEBUG - output final: [%lld, %lld, %lld, %lld]\n",
            (long long)output->ne[0], (long long)output->ne[1],
