@@ -213,6 +213,7 @@ ggml_tensor *load_and_dequantize_to_f32(ggml_context *ctx,
 
     // 1. Leer tensor GGUF
     GGUFTensor gguf_tensor = read_tensor(filename, tensor_name);
+    
     if (gguf_tensor.name.empty())
     {
         std::cerr << "Error: Failed to load tensor '" << tensor_name << "'" << std::endl;
@@ -264,6 +265,8 @@ ggml_tensor *load_and_dequantize_to_f32(ggml_context *ctx,
         return nullptr;
     }
 
+    
+
     // 5. Obtener datos crudos
     const void *raw_data = std::visit([](auto &&arg) -> const void *
                                       { return arg.empty() ? nullptr : arg.data(); }, gguf_tensor.data);
@@ -277,10 +280,44 @@ ggml_tensor *load_and_dequantize_to_f32(ggml_context *ctx,
     // 6. Desquantizar según el tipo
     try
     {
+        int k = 0;
+
+        // Si es K-quant, calcular k desde el número de bloques
+        if (ggml_is_quantized(gguf_tensor.type)) {
+
+            size_t raw_size_bytes = gguf_tensor.size;
+            size_t block_size = get_k_quant_super_block_size(gguf_tensor.type);
+
+            if (raw_size_bytes % block_size != 0) {
+                std::cerr << "Error: raw_data size is not aligned to block size in "
+                        << tensor_name << std::endl;
+                return nullptr;
+            }
+
+            size_t num_blocks = raw_size_bytes / block_size;
+            k = num_blocks * QK_K;
+        }
+        else {
+            // Para F32/F16 normales sí se usa dims[0] * dims[1]
+            k = total_elements;
+        }
+
+        // Validar
+        if (k != total_elements) {
+            std::cerr << "Error: mismatch between dequantized size (k=" << k
+                    << ") and expected tensor size (" << total_elements
+                    << ") in tensor '" << tensor_name << "'" << std::endl;
+            return nullptr;
+        }
+
+        // Ahora sí ejecutar dequantización
         dequantize_k_quant(gguf_tensor.type,
-                           raw_data,
-                           static_cast<float *>(tensor->data),
-                           total_elements);
+                        raw_data,
+                        static_cast<float*>(tensor->data),
+                        k);
+
+        
+  ////////////////////////////////////////////////////////////////////////      
     }
     catch (const std::exception &e)
     {
@@ -586,16 +623,24 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
                ffn_norm_weight_tensor.dims[0] * sizeof(float));
 
         ggml_tensor *ffn_norm_out = layer_norm(ctx, current, ffn_norm_weight, nullptr, true, norm_eps);
-
+        
+        printf("  ------------ LIMITE DEL BUG ----------- \n");
         // Capas FFN (SwishGLU)
         ggml_tensor *ffn_gate = load_proj("ffn_gate.weight");
+
+        printf("  ------------ FIN DEL BUG ----------- \n");
+
         ggml_tensor *ffn_up = load_proj("ffn_up.weight");
         ggml_tensor *ffn_down = load_proj("ffn_down.weight");
+
+        
 
         if (!ffn_gate || !ffn_up || !ffn_down)
         {
             return false;
         }
+
+        
 
         ggml_tensor *ffn_out = llama_ffn(ctx, ffn_norm_out, ffn_gate, ffn_up, ffn_down);
 

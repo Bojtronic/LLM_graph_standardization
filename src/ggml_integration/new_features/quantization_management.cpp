@@ -132,6 +132,8 @@ void dequantize_q3_k(const void* src, float* dst, int k) {
             const uint8_t q0 = x[i].qs[j];
             const uint8_t q1 = x[i].qs[j+1];
             
+           
+
             process_4_values(dst, QK_K*i + 4*j, scale, 0,
                            (q0 & 0x7) - 4, ((q0 >> 3) & 0x7) - 4,
                            ((q0 >> 6) | ((q1 << 2) & 0x7)) - 4,
