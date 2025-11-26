@@ -22,12 +22,21 @@ typedef struct {
     ggml_fp16_t dmin;         // Super-block minimum
 } block_q2_K;
 
+/*
 typedef struct {
     uint8_t hmask[QK_K/8];    // 32 high bits (1 bit each)
     uint8_t qs[QK_K/4];       // 64 2-bit quantized values (low bits)
     uint8_t scales[QK_K/16];  // 16 scales (6 bits each)
     ggml_fp16_t d;            // Super-block scale
 } block_q3_K;
+*/
+
+typedef struct {
+    ggml_fp16_t d;                 // scale
+    uint8_t scales[QK_K/32];       // 8 bytes if QK_K = 256
+    uint8_t qs[QK_K/4];            // 64 bytes packed 3-bit quantized values
+} block_q3_K;
+
 
 typedef struct {
     uint8_t scales[K_SCALE_SIZE];  // Scales and minimums (6 bits)
