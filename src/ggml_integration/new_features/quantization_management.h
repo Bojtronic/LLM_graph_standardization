@@ -32,9 +32,10 @@ typedef struct {
 */
 
 typedef struct {
-    ggml_fp16_t d;                 // scale
-    uint8_t scales[QK_K/32];       // 8 bytes if QK_K = 256
-    uint8_t qs[QK_K/4];            // 64 bytes packed 3-bit quantized values
+    uint8_t hmask[QK_K/8]; // 32 bytes
+    uint8_t qs[QK_K/4];    // 64 bytes
+    uint8_t scales[12];    // 12 bytes 
+    ggml_fp16_t d;         // 2 bytes
 } block_q3_K;
 
 
