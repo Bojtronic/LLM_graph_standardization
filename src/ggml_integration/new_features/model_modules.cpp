@@ -93,17 +93,17 @@ ggml_tensor* multi_head_attention(ggml_context* ctx,
 
     if (K->ne[0] != seq_len_q || K->ne[1] != n_heads || K->ne[2] != head_dim ||
         V->ne[0] != K->ne[0]  || V->ne[1] != K->ne[1]  || V->ne[2] != K->ne[2]) {
-        fprintf(stderr, "Error: dimensiones inconsistentes entre Q, K, V\n");
-        printf(" Q: [%lld,%lld,%lld,%lld]\n", (long long)Q->ne[0], (long long)Q->ne[1], (long long)Q->ne[2], (long long)Q->ne[3]);
-        printf(" K: [%lld,%lld,%lld,%lld]\n", (long long)K->ne[0], (long long)K->ne[1], (long long)K->ne[2], (long long)K->ne[3]);
-        printf(" V: [%lld,%lld,%lld,%lld]\n", (long long)V->ne[0], (long long)V->ne[1], (long long)V->ne[2], (long long)V->ne[3]);
+        //fprintf(stderr, "Error: dimensiones inconsistentes entre Q, K, V\n");
+        //printf(" Q: [%lld,%lld,%lld,%lld]\n", (long long)Q->ne[0], (long long)Q->ne[1], (long long)Q->ne[2], (long long)Q->ne[3]);
+        //printf(" K: [%lld,%lld,%lld,%lld]\n", (long long)K->ne[0], (long long)K->ne[1], (long long)K->ne[2], (long long)K->ne[3]);
+        //printf(" V: [%lld,%lld,%lld,%lld]\n", (long long)V->ne[0], (long long)V->ne[1], (long long)V->ne[2], (long long)V->ne[3]);
         return nullptr;
     }
 
-    printf("DEBUG - Input dimensions:\n");
-    printf("  Q: [%lld, %lld, %lld, %lld]\n", (long long)Q->ne[0], (long long)Q->ne[1], (long long)Q->ne[2], (long long)Q->ne[3]);
-    printf("  K: [%lld, %lld, %lld, %lld]\n", (long long)K->ne[0], (long long)K->ne[1], (long long)K->ne[2], (long long)K->ne[3]);
-    printf("  V: [%lld, %lld, %lld, %lld]\n", (long long)V->ne[0], (long long)V->ne[1], (long long)V->ne[2], (long long)V->ne[3]);
+    //printf("DEBUG - Input dimensions:\n");
+    //printf("  Q: [%lld, %lld, %lld, %lld]\n", (long long)Q->ne[0], (long long)Q->ne[1], (long long)Q->ne[2], (long long)Q->ne[3]);
+    //printf("  K: [%lld, %lld, %lld, %lld]\n", (long long)K->ne[0], (long long)K->ne[1], (long long)K->ne[2], (long long)K->ne[3]);
+    //printf("  V: [%lld, %lld, %lld, %lld]\n", (long long)V->ne[0], (long long)V->ne[1], (long long)V->ne[2], (long long)V->ne[3]);
 
     // -------------------------------------------------------------------------
     // 1) Reordenar Q, K, V a formato [head_dim, seq_len, n_heads, batch]
@@ -114,9 +114,9 @@ ggml_tensor* multi_head_attention(ggml_context* ctx,
     ggml_tensor* Kp = ggml_permute(ctx, K, 1, 2, 3, 0); Kp = ggml_cont(ctx, Kp);
     ggml_tensor* Vp = ggml_permute(ctx, V, 1, 2, 0, 3); Vp = ggml_cont(ctx, Vp);
 
-    printf("DEBUG - Qp: [%lld, %lld, %lld, %lld]\n", (long long)Qp->ne[0], (long long)Qp->ne[1], (long long)Qp->ne[2], (long long)Qp->ne[3]);
-    printf("DEBUG - Kp: [%lld, %lld, %lld, %lld]\n", (long long)Kp->ne[0], (long long)Kp->ne[1], (long long)Kp->ne[2], (long long)Kp->ne[3]);
-    printf("DEBUG - Vp: [%lld, %lld, %lld, %lld]\n", (long long)Vp->ne[0], (long long)Vp->ne[1], (long long)Vp->ne[2], (long long)Vp->ne[3]);
+    //printf("DEBUG - Qp: [%lld, %lld, %lld, %lld]\n", (long long)Qp->ne[0], (long long)Qp->ne[1], (long long)Qp->ne[2], (long long)Qp->ne[3]);
+    //printf("DEBUG - Kp: [%lld, %lld, %lld, %lld]\n", (long long)Kp->ne[0], (long long)Kp->ne[1], (long long)Kp->ne[2], (long long)Kp->ne[3]);
+    //printf("DEBUG - Vp: [%lld, %lld, %lld, %lld]\n", (long long)Vp->ne[0], (long long)Vp->ne[1], (long long)Vp->ne[2], (long long)Vp->ne[3]);
 
     // -------------------------------------------------------------------------
     // 2) Calcular scores_temp = Kp * Qp  (conveniencia para ggml_mul_mat)
@@ -124,12 +124,14 @@ ggml_tensor* multi_head_attention(ggml_context* ctx,
     //    Qp: [head_dim, seq_len_q, n_heads, batch]
     //    ggml_mul_mat(Kp, Qp) => [seq_len_k, seq_len_q, n_heads, batch]
     // -------------------------------------------------------------------------
-    debug_mul_mat_detailed("scores_temp", Kp, Qp);
+    //debug_mul_mat_detailed("scores_temp", Kp, Qp);
     ggml_tensor* scores_temp = ggml_mul_mat(ctx, Kp, Qp);
 
+    /*
     printf("DEBUG - scores_temp (Kp*Qp): [%lld, %lld, %lld, %lld]\n",
            (long long)scores_temp->ne[0], (long long)scores_temp->ne[1],
            (long long)scores_temp->ne[2], (long long)scores_temp->ne[3]);
+    */
 
     // -------------------------------------------------------------------------
     // 3) Permutar scores_temp a la forma esperada [seq_len_q, seq_len_k, n_heads, batch]
@@ -138,9 +140,11 @@ ggml_tensor* multi_head_attention(ggml_context* ctx,
     ggml_tensor* scores = ggml_permute(ctx, scores_temp, 2, 1, 0, 3);
     scores = ggml_cont(ctx, scores);
 
+    /*
     printf("DEBUG - scores after permute (QK^T): [%lld, %lld, %lld, %lld]\n",
            (long long)scores->ne[0], (long long)scores->ne[1],
            (long long)scores->ne[2], (long long)scores->ne[3]);
+    */
 
     // -------------------------------------------------------------------------
     // 4) Escalado usando head_dim (d_k)
@@ -166,9 +170,11 @@ ggml_tensor* multi_head_attention(ggml_context* ctx,
     ggml_tensor* attn_weights = ggml_soft_max(ctx, scores);
     attn_weights = ggml_cont(ctx, attn_weights);
 
+    /*
     printf("DEBUG - attn_weights: [%lld, %lld, %lld, %lld]\n",
            (long long)attn_weights->ne[0], (long long)attn_weights->ne[1],
            (long long)attn_weights->ne[2], (long long)attn_weights->ne[3]);
+    */
 
     // -------------------------------------------------------------------------
     // 7) Preparar A y B para la multiplicación final
@@ -185,6 +191,7 @@ ggml_tensor* multi_head_attention(ggml_context* ctx,
     //ggml_tensor* B_cont = V;
     B_cont = ggml_cont(ctx, B_cont);
 
+    /*
     printf("DEBUG - A (for output mul): [%lld, %lld, %lld, %lld]\n",
            (long long)A->ne[0], (long long)A->ne[1], (long long)A->ne[2], (long long)A->ne[3]);
     printf("DEBUG - B_cont (V):      [%lld, %lld, %lld, %lld]\n",
@@ -195,14 +202,17 @@ ggml_tensor* multi_head_attention(ggml_context* ctx,
 
     debug_mul_mat_detailed("output", A, B_cont);
 
+    */
+
     ggml_tensor* output = ggml_mul_mat(ctx, A, B_cont);
     output = ggml_cont(ctx, output);
 
     
-
+    /*
     printf("DEBUG - output final: [%lld, %lld, %lld, %lld]\n",
            (long long)output->ne[0], (long long)output->ne[1],
            (long long)output->ne[2], (long long)output->ne[3]);
+    */
 
     return output;
 }

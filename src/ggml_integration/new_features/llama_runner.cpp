@@ -296,6 +296,8 @@ ggml_tensor *load_and_dequantize_to_f32(ggml_context *ctx,
 
             size_t num_blocks = raw_size_bytes / block_size;
             k = num_blocks * QK_K;
+
+            
         }
         else {
             // Para F32/F16 normales sí se usa dims[0] * dims[1]
@@ -559,7 +561,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         v = ggml_reshape_3d(ctx, v, head_dim, n_head, input_tokens.size());
 
 
-        printf("  -----PRIMER DEBUNG MUL MAT LISTO----------- \n");
+        
 
 
 
@@ -580,8 +582,6 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
 
 
         
-        printf("  -----multi_head_attention LISTO----------- \n");
-
         
         attn_output = ggml_permute(ctx, attn_output, 0, 2, 1, 3); 
         attn_output = ggml_cont(ctx, attn_output);
@@ -595,18 +595,19 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
             return false;
         }
 
-        debug_mul_mat_detailed_x("attn_output", attn_weight, attn_norm_out);
+        //debug_mul_mat_detailed_x("attn_output", attn_weight, attn_norm_out);
         attn_output = ggml_mul_mat(ctx, attn_weight, attn_output);
 
         current = ggml_permute(ctx, current, 0, 2, 1, 3); 
         current = ggml_cont(ctx, current);
 
+        /*
         printf("DEBUG - current : [%lld, %lld, %lld, %lld]\n",
            (long long)current->ne[0], (long long)current->ne[1], (long long)current->ne[2], (long long)current->ne[3]);
         
         printf("DEBUG - attn_output :      [%lld, %lld, %lld, %lld]\n",
             (long long)attn_output->ne[0], (long long)attn_output->ne[1], (long long)attn_output->ne[2], (long long)attn_output->ne[3]);
-
+        */
 
 
 
@@ -614,7 +615,6 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         // Conexión residual
         current = ggml_add(ctx, current, attn_output);
 
-        printf("  -----siguiente debug----------- \n");
 
         // Feed Forward Network
         GGUFTensor ffn_norm_weight_tensor = read_tensor(model_filename, layer_prefix + "ffn_norm.weight");
@@ -624,13 +624,16 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
 
         ggml_tensor *ffn_norm_out = layer_norm(ctx, current, ffn_norm_weight, nullptr, true, norm_eps);
         
-        printf("  ------------ LIMITE DEL BUG ----------- \n");
+        
         // Capas FFN (SwishGLU)
         ggml_tensor *ffn_gate = load_proj("ffn_gate.weight");
 
-        printf("  ------------ FIN DEL BUG ----------- \n");
+        printf("  ------------ INICIO DEL NUEVO BUG ----------- \n");
 
         ggml_tensor *ffn_up = load_proj("ffn_up.weight");
+
+        printf("  ------------ FIN DEL NUEVO BUG ----------- \n");
+
         ggml_tensor *ffn_down = load_proj("ffn_down.weight");
 
         
