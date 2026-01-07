@@ -653,7 +653,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
             current = ggml_permute(ctx, current, 0, 2, 1, 3);
             current = ggml_cont(ctx, current);
         }
-        
+
         current = ggml_add(ctx, current, attn_output);
         dbg_tensor("current (after attn residual)", current);
 
@@ -702,21 +702,21 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         current = ggml_add(ctx, current, ffn_out);
         dbg_tensor("current (after ffn residual)", current);
 
-        printf("  ------------ INICIO DEL NUEVO BUG ----------- \n");
+        
     }
 
-    printf("  ------------ FIN DEL NUEVO BUG ----------- \n");
+    
     
 
     // 6. Normalización final
-    ggml_tensor *output_norm = load_and_dequantize_to_f32(ctx, model_filename, "output_norm.weight");
-    if (!output_norm)
-    {
-        std::cerr << "Error loading output_norm.weight" << std::endl;
-        ggml_free(ctx);
-        return false;
-    }
+    GGUFTensor output_norm_tensor = read_tensor(model_filename, "output_norm.weight");
+    ggml_tensor *output_norm = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, output_norm_tensor.dims[0]);
+    memcpy(output_norm->data,
+        std::get<std::vector<float>>(output_norm_tensor.data).data(),
+        output_norm_tensor.dims[0] * sizeof(float));
 
+
+    
     current = layer_norm(ctx, current, output_norm, nullptr, true, norm_eps);
 
     // 7. Capa de salida (LM head)
