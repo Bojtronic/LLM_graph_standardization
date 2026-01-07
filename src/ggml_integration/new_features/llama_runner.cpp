@@ -645,6 +645,15 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
             (long long)attn_output->ne[2], (long long)attn_output->ne[3]);
 
         // Conexión residual
+        // Asegurar que current tenga la misma forma que attn_output
+        if (current->ne[1] != attn_output->ne[1] ||
+            current->ne[2] != attn_output->ne[2]) {
+
+            printf("[FIX] aligning current to attn_output layout\n");
+            current = ggml_permute(ctx, current, 0, 2, 1, 3);
+            current = ggml_cont(ctx, current);
+        }
+        
         current = ggml_add(ctx, current, attn_output);
         dbg_tensor("current (after attn residual)", current);
 
