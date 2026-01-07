@@ -251,20 +251,42 @@ void run_model(bool use_gpu, const std::string& model_filename) {
         }
     }
 
-    //manejar la memoria dependiendo del modelo
-    struct ggml_init_params ggml_params = {
-        //.mem_size = 16 * 1024 * 1024,
-        .mem_size = 1024 * 1024 * 1024,
+    /*
+    // Contexto para PESOS
+    ggml_init_params params_weights = {
+        .mem_size = 8ULL * 1024 * 1024 * 1024, // ajustar de acuerdo al modelo
         .mem_buffer = NULL,
         .no_alloc = false,
     };
+
+    ggml_context * ctx_weights = ggml_init(params_weights);
+
+    // Contexto para CÓMPUTO
+    ggml_init_params params_compute = {
+        .mem_size = 2ull * 1024ull * 1024ull * 1024ull,   // 2 GB
+        .mem_buffer = NULL,
+        .no_alloc = false,
+    };
+
+    ggml_context * ctx_compute = ggml_init(params_compute);
+
+    */
     
-    struct ggml_context* ctx = ggml_init(ggml_params);
+    ggml_init_params params = {
+        .mem_size = 8ULL * 1024ull * 1024ull * 1024ull, // 8 GB
+        .mem_buffer = NULL,
+        .no_alloc = false,
+    };
+
+    ggml_context * ctx = ggml_init(params);
+
     bool success = false;
 
     GGUFMetadata arch_metadata = read_metadata(model_filename, "general.architecture");
     if (arch_metadata.type != GGUF_TYPE_STRING) {
         std::cerr << "Error: Could not find 'general.architecture' in model metadata or invalid type\n";
+        //ggml_free(ctx_compute);
+        //ggml_free(ctx_weights);
         ggml_free(ctx);
         ggml_backend_free(backend);
         return;
@@ -295,5 +317,7 @@ void run_model(bool use_gpu, const std::string& model_filename) {
     }
     
     ggml_free(ctx);
+    //ggml_free(ctx_compute);
+    //ggml_free(ctx_weights);
     ggml_backend_free(backend);
 }

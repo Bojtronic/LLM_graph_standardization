@@ -16,7 +16,23 @@ bool run_interactive_chat(ggml_backend_t backend, const std::string& model_filen
 int sample_next_token(const float* logits, int n_vocab, 
                      float temperature, float top_p, int top_k);
                      
-bool run_llama_model(ggml_context* ctx, ggml_backend_t backend, const std::string& model_filename);
+bool run_llama_model(
+    ggml_context * ctx,
+    ggml_backend_t backend,
+    const std::string & model_filename
+);
+
+void dbg_tensor(const char *name, ggml_tensor *t);
+
+ggml_tensor * ensure_compute_tensor(
+    ggml_context * ctx_compute,
+    ggml_tensor  * w);
+    
+ggml_tensor * ensure_2d(
+    ggml_context * ctx,
+    ggml_tensor  * t,
+    int64_t        ne0,
+    int64_t        ne1);
 
 void debug_mul_mat_detailed_x(const char* name, ggml_tensor* A, ggml_tensor* B);
 

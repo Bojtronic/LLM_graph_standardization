@@ -330,6 +330,36 @@ ggml_tensor *load_and_dequantize_to_f32(ggml_context *ctx,
     return tensor;
 }
 
+ggml_tensor * load_weight_auto(
+    ggml_context * ctx_weights,
+    const std::string & model_filename,
+    const std::string & name)
+{
+    GGUFTensor tinfo = read_tensor(model_filename, name);
+
+    // Caso 1: ya es F32 → copiar directo
+    if (tinfo.type == GGML_TYPE_F32) {
+
+        ggml_tensor * t =
+            ggml_new_tensor_1d(
+                ctx_weights,
+                GGML_TYPE_F32,
+                tinfo.dims[0]
+            );
+
+        memcpy(
+            t->data,
+            std::get<std::vector<float>>(tinfo.data).data(),
+            tinfo.dims[0] * sizeof(float)
+        );
+
+        return t;
+    }
+
+    // Caso 2: cuantizado → decuantizar
+    return load_and_dequantize_to_f32(ctx_weights, model_filename, name);
+}
+
 bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::string &model_filename)
 {
 
@@ -510,24 +540,28 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
     // 5. Procesar cada capa del transformer
     for (int i = 0; i < n_layers; ++i)
     {
+        printf("\n---- LAYER %d ----\n", i);
+
         std::string layer_prefix = "blk." + std::to_string(i) + ".";
+
+        dbg_tensor("current (in)", current);
 
         // Atención - Norm Weight
         GGUFTensor attn_norm_weight_tensor = read_tensor(model_filename, layer_prefix + "attn_norm.weight");
         ggml_tensor *attn_norm_weight = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, attn_norm_weight_tensor.dims[0]);
-        memcpy(attn_norm_weight->data, std::get<std::vector<float>>(attn_norm_weight_tensor.data).data(),
-               attn_norm_weight_tensor.dims[0] * sizeof(float));
+        memcpy(attn_norm_weight->data,
+            std::get<std::vector<float>>(attn_norm_weight_tensor.data).data(),
+            attn_norm_weight_tensor.dims[0] * sizeof(float));
 
         ggml_tensor *attn_norm_out = layer_norm(ctx, current, attn_norm_weight, nullptr, true, norm_eps);
+        dbg_tensor("attn_norm_out", attn_norm_out);
 
-        // Proyecciones Q, K, V - usando función lambda simplificada
+        // Proyecciones Q, K, V
         auto load_proj = [&](const std::string &name) -> ggml_tensor *
         {
             ggml_tensor *tensor = load_and_dequantize_to_f32(ctx, model_filename, layer_prefix + name);
             if (!tensor)
-            {
                 std::cerr << "Error loading " << name << " for layer " << i << std::endl;
-            }
             return tensor;
         };
 
@@ -536,120 +570,134 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         ggml_tensor *v_proj = load_proj("attn_v.weight");
 
         if (!q_proj || !k_proj || !v_proj)
-        {
             return false;
-        }
 
-        //debug_mul_mat_detailed("q_proj", q_proj, attn_norm_out);
-        //debug_mul_mat_detailed("k_proj", k_proj, attn_norm_out);
-        //debug_mul_mat_detailed("v_proj", v_proj, attn_norm_out);
-        
+        dbg_tensor("q_proj", q_proj);
+        dbg_tensor("k_proj", k_proj);
+        dbg_tensor("v_proj", v_proj);
+
         ggml_tensor *q = ggml_mul_mat(ctx, q_proj, attn_norm_out);
         ggml_tensor *k = ggml_mul_mat(ctx, k_proj, attn_norm_out);
         ggml_tensor *v = ggml_mul_mat(ctx, v_proj, attn_norm_out);
 
-        
+        dbg_tensor("q (after mul)", q);
+        dbg_tensor("k (after mul)", k);
+        dbg_tensor("v (after mul)", v);
 
-        // Aplicar RoPE a Q y K
+        // RoPE
         q = positional_encoding(ctx, q, "rope", n_embd / n_head, 0, 10000.0f);
         k = positional_encoding(ctx, k, "rope", n_embd / n_head, 0, 10000.0f);
 
-        // Reorganizar tensores para atención multi-cabeza
+        dbg_tensor("q (after rope)", q);
+        dbg_tensor("k (after rope)", k);
+
+        // Reorganizar tensores
         int head_dim = n_embd / n_head;
         q = ggml_reshape_3d(ctx, q, head_dim, n_head, input_tokens.size());
         k = ggml_reshape_3d(ctx, k, head_dim, n_head, input_tokens.size());
         v = ggml_reshape_3d(ctx, v, head_dim, n_head, input_tokens.size());
 
+        dbg_tensor("q (3d)", q);
+        dbg_tensor("k (3d)", k);
+        dbg_tensor("v (3d)", v);
 
-        
-
-
-
-        // Aplicar atención multi-cabeza
+        // Atención multi-cabeza
         ggml_tensor *attn_output = multi_head_attention(
             ctx,
-            //ggml_cont(ctx, ggml_permute(ctx, q, 0, 2, 1, 3)), // [seq_len, n_head, head_dim]
-            //ggml_cont(ctx, ggml_permute(ctx, q, 2, 1, 0, 3)), 
             q,
-            //ggml_cont(ctx, ggml_permute(ctx, k, 0, 2, 1, 3)), // [seq_len, n_head, head_dim]
-            //ggml_cont(ctx, ggml_permute(ctx, k, 2, 1, 0, 3)), 
             k,
-            //ggml_cont(ctx, ggml_permute(ctx, v, 0, 2, 1, 3)), // [seq_len, n_head, head_dim]
-            //ggml_cont(ctx, ggml_permute(ctx, v, 2, 1, 0, 3)), 
             v,
-            true                                              // is_causal para modelos autoregresivos
+            true
         );
 
+        dbg_tensor("attn_output (raw)", attn_output);
 
-        
-        
-        attn_output = ggml_permute(ctx, attn_output, 0, 2, 1, 3); 
+        attn_output = ggml_permute(ctx, attn_output, 0, 2, 1, 3);
         attn_output = ggml_cont(ctx, attn_output);
-        attn_output = ggml_reshape_2d(ctx, attn_output, n_embd, input_tokens.size()); 
+        attn_output = ggml_reshape_2d(ctx, attn_output, n_embd, input_tokens.size());
+
+        dbg_tensor("attn_output (2d)", attn_output);
 
         // Proyección de salida
-        ggml_tensor *attn_weight = load_and_dequantize_to_f32(ctx, model_filename, layer_prefix + "attn_output.weight");
-        if (!attn_weight)
-        {
+        ggml_tensor *attn_weight =
+            load_and_dequantize_to_f32(ctx, model_filename, layer_prefix + "attn_output.weight");
+
+        if (!attn_weight) {
             std::cerr << "Error loading attn_output.weight for layer " << i << std::endl;
             return false;
         }
 
-        //debug_mul_mat_detailed_x("attn_output", attn_weight, attn_norm_out);
+        dbg_tensor("attn_weight", attn_weight);
+
         attn_output = ggml_mul_mat(ctx, attn_weight, attn_output);
+        dbg_tensor("attn_output (proj)", attn_output);
 
-        current = ggml_permute(ctx, current, 0, 2, 1, 3); 
+        current = ggml_permute(ctx, current, 0, 2, 1, 3);
         current = ggml_cont(ctx, current);
+        dbg_tensor("current (before residual)", current);
 
-        /*
-        printf("DEBUG - current : [%lld, %lld, %lld, %lld]\n",
-           (long long)current->ne[0], (long long)current->ne[1], (long long)current->ne[2], (long long)current->ne[3]);
-        
-        printf("DEBUG - attn_output :      [%lld, %lld, %lld, %lld]\n",
-            (long long)attn_output->ne[0], (long long)attn_output->ne[1], (long long)attn_output->ne[2], (long long)attn_output->ne[3]);
-        */
+        dbg_tensor("attn_output (before residual)", attn_output);
 
-
-
+        printf("[DBG] trying residual add: current [%lld,%lld,%lld,%lld] + attn [%lld,%lld,%lld,%lld]\n",
+            (long long)current->ne[0], (long long)current->ne[1],
+            (long long)current->ne[2], (long long)current->ne[3],
+            (long long)attn_output->ne[0], (long long)attn_output->ne[1],
+            (long long)attn_output->ne[2], (long long)attn_output->ne[3]);
 
         // Conexión residual
         current = ggml_add(ctx, current, attn_output);
-
+        dbg_tensor("current (after attn residual)", current);
 
         // Feed Forward Network
-        GGUFTensor ffn_norm_weight_tensor = read_tensor(model_filename, layer_prefix + "ffn_norm.weight");
-        ggml_tensor *ffn_norm_weight = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, ffn_norm_weight_tensor.dims[0]);
-        memcpy(ffn_norm_weight->data, std::get<std::vector<float>>(ffn_norm_weight_tensor.data).data(),
-               ffn_norm_weight_tensor.dims[0] * sizeof(float));
+        GGUFTensor ffn_norm_weight_tensor =
+            read_tensor(model_filename, layer_prefix + "ffn_norm.weight");
 
-        ggml_tensor *ffn_norm_out = layer_norm(ctx, current, ffn_norm_weight, nullptr, true, norm_eps);
-        
-        
-        // Capas FFN (SwishGLU)
+        ggml_tensor *ffn_norm_weight =
+            ggml_new_tensor_1d(ctx, GGML_TYPE_F32, ffn_norm_weight_tensor.dims[0]);
+
+        memcpy(ffn_norm_weight->data,
+            std::get<std::vector<float>>(ffn_norm_weight_tensor.data).data(),
+            ffn_norm_weight_tensor.dims[0] * sizeof(float));
+
+        ggml_tensor *ffn_norm_out =
+            layer_norm(ctx, current, ffn_norm_weight, nullptr, true, norm_eps);
+
+        dbg_tensor("ffn_norm_out", ffn_norm_out);
+
         ggml_tensor *ffn_gate = load_proj("ffn_gate.weight");
-
-        printf("  ------------ INICIO DEL NUEVO BUG ----------- \n");
-
-        ggml_tensor *ffn_up = load_proj("ffn_up.weight");
-
-        printf("  ------------ FIN DEL NUEVO BUG ----------- \n");
-
+        ggml_tensor *ffn_up   = load_proj("ffn_up.weight");
         ggml_tensor *ffn_down = load_proj("ffn_down.weight");
 
-        
+        dbg_tensor("ffn_gate", ffn_gate);
+        dbg_tensor("ffn_up",   ffn_up);
+        dbg_tensor("ffn_down", ffn_down);
 
         if (!ffn_gate || !ffn_up || !ffn_down)
-        {
             return false;
-        }
 
-        
+        ggml_tensor *ffn_out =
+            llama_ffn(ctx, ffn_norm_out, ffn_gate, ffn_up, ffn_down);
 
-        ggml_tensor *ffn_out = llama_ffn(ctx, ffn_norm_out, ffn_gate, ffn_up, ffn_down);
+        dbg_tensor("ffn_out", ffn_out);
 
         // Conexión residual final
+        dbg_tensor("current (before ffn residual)", current);
+        dbg_tensor("ffn_out (before residual)", ffn_out);
+
+        printf("[DBG] trying FFN residual add: current [%lld,%lld,%lld,%lld] + ffn [%lld,%lld,%lld,%lld]\n",
+            (long long)current->ne[0], (long long)current->ne[1],
+            (long long)current->ne[2], (long long)current->ne[3],
+            (long long)ffn_out->ne[0], (long long)ffn_out->ne[1],
+            (long long)ffn_out->ne[2], (long long)ffn_out->ne[3]);
+
         current = ggml_add(ctx, current, ffn_out);
+        dbg_tensor("current (after ffn residual)", current);
+
+        printf("  ------------ INICIO DEL NUEVO BUG ----------- \n");
     }
+
+    printf("  ------------ FIN DEL NUEVO BUG ----------- \n");
+    
 
     // 6. Normalización final
     ggml_tensor *output_norm = load_and_dequantize_to_f32(ctx, model_filename, "output_norm.weight");
@@ -670,6 +718,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
         ggml_free(ctx);
         return false;
     }
+
 
     debug_mul_mat_detailed_x("logits", output_weight, current);
     ggml_tensor *logits = ggml_mul_mat(ctx, output_weight, current);
@@ -710,6 +759,51 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
     ggml_free(ctx);
     input_tokens.clear();
     return true;
+}
+
+
+void dbg_tensor(const char *name, ggml_tensor *t) {
+    if (!t) {
+        printf("[DBG] %s = NULL\n", name);
+        return;
+    }
+    printf("[DBG] %s: type=%d ne=[%lld,%lld,%lld,%lld]\n",
+           name, t->type,
+           (long long)t->ne[0],
+           (long long)t->ne[1],
+           (long long)t->ne[2],
+           (long long)t->ne[3]);
+}
+
+
+
+ggml_tensor * ensure_compute_tensor(
+    ggml_context * ctx_compute,
+    ggml_tensor  * w)
+{
+    // Siempre duplicamos en ctx_compute para evitar mezclar contextos
+    ggml_tensor * wc = ggml_dup_tensor(ctx_compute, w);
+    ggml_set_name(wc, w->name);
+    return wc;
+}
+
+
+
+
+ggml_tensor * ensure_2d(
+    ggml_context * ctx,
+    ggml_tensor  * t,
+    int64_t        ne0,
+    int64_t        ne1)
+{
+    if (t->ne[0] == ne0 &&
+        t->ne[1] == ne1 &&
+        t->ne[2] == 1 &&
+        t->ne[3] == 1) {
+        return t;
+    }
+
+    return ggml_reshape_2d(ctx, t, ne0, ne1);
 }
 
 

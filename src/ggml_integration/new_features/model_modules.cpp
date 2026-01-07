@@ -231,32 +231,43 @@ ggml_tensor* multi_head_attention(ggml_context* ctx,
  * @param eps Valor épsilon para estabilidad numérica
  * @return Tensor normalizado
  */
-ggml_tensor* layer_norm(ggml_context* ctx, ggml_tensor* input, ggml_tensor* weight, ggml_tensor* bias, bool use_rmsnorm, float eps) {
-    //Aplicar normalización base
-    ggml_tensor* normalized;
+ggml_tensor* layer_norm(
+    ggml_context* ctx,
+    ggml_tensor* input,
+    ggml_tensor* weight,
+    ggml_tensor* bias,
+    bool use_rmsnorm,
+    float eps
+) {
+    ggml_tensor* x;
+
     if (use_rmsnorm) {
-        // RMSNorm (usado en LLaMA, DeepSeek)
-        normalized = ggml_rms_norm(ctx, input, eps);
+        // RMSNorm (LLaMA)
+        x = ggml_rms_norm(ctx, input, eps);
     } else {
-        // LayerNorm clásico (usado en ViT, Whisper)
-        normalized = ggml_norm(ctx, input, eps);
-        
-        // Para LayerNorm, añadir el centrado (restar media)
-        ggml_tensor* mean = ggml_mean(ctx, input);
-        normalized = ggml_sub(ctx, input, mean);
+        // LayerNorm clásico
+        x = ggml_norm(ctx, input, eps);
+
+        // (ggml_norm ya centra internamente, NO necesitas mean/sub)
+        // ⚠️ Tu implementación previa aquí estaba mal conceptualmente
     }
 
-    //Aplicar transformación affine (scale y shift) si hay parámetros
+    // ---- scale ----
     if (weight) {
-        normalized = ggml_mul(ctx, normalized, weight);
+        // repetir weight sobre x
+        ggml_tensor* w = ggml_repeat(ctx, weight, x);
+        x = ggml_mul(ctx, x, w);
     }
 
-    if (bias && !use_rmsnorm) { // RMSNorm normalmente no usa bias
-        normalized = ggml_add(ctx, normalized, bias);
+    // ---- bias ----
+    if (bias && !use_rmsnorm) {
+        ggml_tensor* b = ggml_repeat(ctx, bias, x);
+        x = ggml_add(ctx, x, b);
     }
 
-    return normalized;
+    return x;
 }
+
 
 // Función que implementa la activación SwiGLU (Swish-Gated Linear Unit).
 // SwiGLU es una función de activación que combina la función Swish (Sigmoid-Weighted Linear Unit) con una compuerta (gating mechanism)
@@ -284,12 +295,22 @@ ggml_tensor * ggml_swiglu(ggml_context * ctx, ggml_tensor * x) {
 // - activation: Tipo de función de activación (ReLU, GELU o SWIGLU).
 // Retorna:
 // - Un tensor que representa la salida de la red feed-forward después de aplicar la transformación lineal y la función de activación especificada.
-ggml_tensor * feed_forward(ggml_context * ctx, ggml_tensor * input, ggml_tensor * weight, ggml_tensor * bias, const char * activation) {
-    
+ggml_tensor * feed_forward(
+    ggml_context * ctx,
+    ggml_tensor * input,
+    ggml_tensor * weight,
+    ggml_tensor * bias,
+    const char * activation
+) {
     debug_mul_mat_detailed("output_feed_fordward", weight, input);
-    ggml_tensor * output = ggml_add(ctx, ggml_mul_mat(ctx, weight, input), bias);
 
-    // Aplicar función de activación
+    ggml_tensor * output = ggml_mul_mat(ctx, weight, input);
+
+    if (bias != nullptr) {
+        output = ggml_add(ctx, output, bias);
+    }
+
+    // Activación
     if (strcmp(activation, "relu") == 0) {
         output = ggml_relu(ctx, output);
     } else if (strcmp(activation, "gelu") == 0) {
@@ -300,6 +321,7 @@ ggml_tensor * feed_forward(ggml_context * ctx, ggml_tensor * input, ggml_tensor 
 
     return output;
 }
+
 
 // Calcula el seno de cada elemento en un arreglo de números flotantes.
 // Parámetros:
@@ -441,25 +463,29 @@ ggml_tensor * positional_encoding(ggml_context * ctx, ggml_tensor * input, const
 /**
  * Módulo Feed-Forward Network para LLaMA (SwiGLU)
  */
-ggml_tensor* llama_ffn(ggml_context* ctx, ggml_tensor* input, ggml_tensor* gate_proj, ggml_tensor* up_proj, ggml_tensor* down_proj) {
-    // Implementación SwiGLU
-    ggml_tensor* gate = feed_forward(ctx, input, gate_proj, nullptr, "swiglu");
+ggml_tensor* llama_ffn(
+    ggml_context* ctx,
+    ggml_tensor* input,
+    ggml_tensor* gate_proj,
+    ggml_tensor* up_proj,
+    ggml_tensor* down_proj
+) {
+    // Wg x
+    ggml_tensor* gate = ggml_mul_mat(ctx, gate_proj, input);
+    gate = ggml_silu(ctx, gate);
 
-    debug_mul_mat_detailed("up", up_proj, input);
+    // Wu x
     ggml_tensor* up = ggml_mul_mat(ctx, up_proj, input);
 
-    
-    
-    ggml_tensor* ffn_gate = ggml_mul(ctx, gate, up);
+    // gate ⊙ up
+    ggml_tensor* fused = ggml_mul(ctx, gate, up);
 
+    // Wd (gate ⊙ up)
+    ggml_tensor* out = ggml_mul_mat(ctx, down_proj, fused);
 
-    debug_mul_mat_detailed("ffn_down_proj", down_proj, ffn_gate);
-    ggml_tensor* ffn_down_proj = ggml_mul_mat(ctx, down_proj, ffn_gate);
-
-
-    //return ggml_mul_mat(ctx, down_proj, ggml_mul(ctx, gate, up));
-    return ffn_down_proj;
+    return out;
 }
+
 
 
 // Módulo de Cross-Attention (Whisper)
