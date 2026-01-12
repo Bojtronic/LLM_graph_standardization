@@ -273,7 +273,7 @@ void run_model(bool use_gpu, const std::string& model_filename) {
     */
     
     ggml_init_params params = {
-        .mem_size = 8ULL * 1024ull * 1024ull * 1024ull, // 8 GB
+        .mem_size = 32ULL * 1024ull * 1024ull * 1024ull, // 8 GB
         .mem_buffer = NULL,
         .no_alloc = false,
     };
