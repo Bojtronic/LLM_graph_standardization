@@ -118,65 +118,49 @@ std::string decode_output_______(const std::vector<int>& tokens, const std::stri
 
 std::string decode_output(ggml_tensor *logits, const std::string &model_filename)
 {
-    // Verificar que el tensor es 2D [batch_size, vocab_size]
-    /*
-    if (logits->n_dims != 2) {
-        std::cerr << "Error: Expected 2D logits tensor\n";
+    // En ggml: logits = [vocab_size, seq_len]
+    const int vocab_size = logits->ne[0];
+    const int seq_len    = logits->ne[1];
+
+    if (seq_len <= 0 || vocab_size <= 0) {
         return "[DECODE_ERROR]";
     }
-    */
 
-    // Obtener las dimensiones del tensor
-    const int seq_len = logits->ne[0];
-    const int vocab_size = logits->ne[1];
+    // Usamos SOLO el último token
+    const int t = seq_len - 1;
 
-    // Convertir los logits a tokens (usando argmax)
-    std::vector<int> tokens;
     float *logits_data = static_cast<float *>(logits->data);
 
-    for (int i = 0; i < seq_len; ++i)
-    {
-        float *row = logits_data + i * vocab_size;
-        int max_token = 0;
-        float max_val = row[0];
+    // Columna t: logits[vocab, t]
+    float *col = logits_data + t * vocab_size;
 
-        for (int j = 1; j < vocab_size; ++j)
-        {
-            if (row[j] > max_val)
-            {
-                max_val = row[j];
-                max_token = j;
-            }
+    int   max_token = 0;
+    float max_val   = col[0];
+
+    for (int j = 1; j < vocab_size; ++j) {
+        if (col[j] > max_val) {
+            max_val   = col[j];
+            max_token = j;
         }
-        tokens.push_back(max_token);
     }
 
-    // Buscar el vocabulario en los metadatos
+    // ========= vocab =========
     GGUFMetadata tokens_meta = read_metadata(model_filename, "tokenizer.ggml.tokens");
 
     if (tokens_meta.type != GGUF_TYPE_ARRAY ||
         !std::holds_alternative<std::vector<std::string>>(tokens_meta.array.data))
     {
-        return decode_basic(tokens);
+        return decode_basic({max_token});
     }
 
     const auto &vocab = std::get<std::vector<std::string>>(tokens_meta.array.data);
-    std::string output;
 
-    for (int token : tokens)
-    {
-        if (token >= 0 && token < vocab.size())
-        {
-            output += vocab[token];
-        }
-        else
-        {
-            output += "[UNK:" + std::to_string(token) + "]";
-        }
-    }
+    if (max_token >= 0 && max_token < (int)vocab.size())
+        return vocab[max_token];
 
-    return output;
+    return "[UNK:" + std::to_string(max_token) + "]";
 }
+
 
 // Función de respaldo para decodificación básica
 std::string decode_basic(const std::vector<int> &tokens)
@@ -359,7 +343,6 @@ ggml_tensor * load_weight_auto(
     // Caso 2: cuantizado → decuantizar
     return load_and_dequantize_to_f32(ctx_weights, model_filename, name);
 }
-
 
 bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::string &model_filename)
 {
@@ -669,7 +652,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
     if (!output_weight)
     {
         std::cerr << "Error loading output.weight" << std::endl;
-        ggml_free(ctx);
+        //ggml_free(ctx);
         return false;
     }
 
@@ -684,7 +667,7 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
     if (!logits)
     {
         std::cerr << "\nError: Model execution failed\n";
-        ggml_free(ctx);
+        //ggml_free(ctx);
         return false;
     }
 
@@ -700,10 +683,9 @@ bool run_llama_model(ggml_context *ctx, ggml_backend_t backend, const std::strin
 
     std::cout << "\n\n";
 
-    ggml_free(ctx);
+    //ggml_free(ctx);
     input_tokens.clear();
 }
-
 
 
 void dbg_tensor(const char *name, ggml_tensor *t) {
